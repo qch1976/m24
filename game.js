@@ -1,3 +1,3 @@
 import Main from './js/main';
 
-new Main();
+new Main();  //my notes
