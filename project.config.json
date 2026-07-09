@@ -1,5 +1,5 @@
 {
-  "description": "项目配置文件",
+  "description": "m24 - 24 点微信小游戏",
   "setting": {
     "urlCheck": false,
     "es6": true,
@@ -29,7 +29,7 @@
   "compileType": "game",
   "libVersion": "3.15.2",
   "appid": "wx4e0efde8d1e3e6e9",
-  "projectname": "quickstart",
+  "projectname": "m24",
   "condition": {
     "search": {
       "current": -1,
@@ -50,7 +50,12 @@
   },
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": ".cloudbase"
+      }
+    ],
     "include": []
   },
   "isGameTourist": false,
