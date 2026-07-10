@@ -1,10 +1,13 @@
 // m24 - PageRenderer.js
 // 分派到具体页面渲染：首页 / 牌桌页 / 游戏页 / 结算页
-// INPUT-01 迭代新增：table（牌桌）页面 + 发牌状态机 + 翻转动画
+// INPUT-01：新增 table（牌桌）页面 + 发牌状态机 + 翻转动画
+// INPUT-01.1：牌桌布局由 1×4 改为 2×2；扑克渲染切换到图片（带手绘降级）；进入牌桌时预加载所有素材
+//   注意：本文件不修改 Deck.js / Card.js / Random.js（发牌算法/点数换算保持不变），
+//        仅调整视觉与页面级状态机不涉及的布局与素材初始化
 
 import { drawButton, hitTest, roundRect } from './Components';
 import Background from './Background';
-import { drawCard } from './CardRenderer';
+import { drawCard, preloadAllCardImages, getPreloadStats } from './CardRenderer';
 import { drawDealButton } from './ButtonRenderer';
 import Deck from '../core/Deck';
 
@@ -15,19 +18,19 @@ const PAGE = {
   RESULT: 'result',
 };
 
-// 华为 P30 竖屏 411×891 DP 下的布局锚点
+// 华为 P30 竖屏 411×891 DP 下的 2×2 布局锚点（依据 21-INPUT01.1-补丁设计.md §1.2）
 // 若实际 canvas 尺寸不同，采用等比缩放（见 _computeLayout）
 const DESIGN_W = 411;
 const DESIGN_H = 891;
 const LAYOUT_ANCHOR = {
-  dealBtn: { x: 155, y: 80, w: 100, h: 50 },
+  dealBtn: { x: 155, y: 60, w: 100, h: 50 },
   cards: [
-    { x: 40,  y: 380, w: 70, h: 100 },
-    { x: 130, y: 380, w: 70, h: 100 },
-    { x: 220, y: 380, w: 70, h: 100 },
-    { x: 310, y: 380, w: 70, h: 100 },
+    { x: 55,  y: 200, w: 120, h: 170 }, // 左上
+    { x: 236, y: 200, w: 120, h: 170 }, // 右上
+    { x: 55,  y: 400, w: 120, h: 170 }, // 左下
+    { x: 236, y: 400, w: 120, h: 170 }, // 右下
   ],
-  hint: { x: 411 / 2, y: 520 },
+  hint: { x: 411 / 2, y: 620 },
 };
 
 const DEAL_STATE = {
@@ -36,23 +39,24 @@ const DEAL_STATE = {
   DONE: 'done',
 };
 
-// 单张牌翻转时长（毫秒）
+// 翻转动画时长（毫秒）；INPUT-01 保持一致
 const CARD_FLIP_MS = 400;
-// 每张牌之间发牌间隔
 const CARD_DELAY_MS = 150;
 
 export default class PageRenderer {
   constructor(ui) {
     this.ui = ui;
     this.buttonsCache = {};
-    // INPUT-01 状态
+    // INPUT-01 状态（未改）
     this.deck = new Deck();
     this.dealState = DEAL_STATE.IDLE;
-    this.dealtCards = []; // 4 张 Card 或空
+    this.dealtCards = [];
     this.dealStartAt = 0;
-    this.dealCount = 0; // 发牌次数计数（供调试）
-    this._touchTracking = null;
+    this.dealCount = 0;
     this.background = null;
+    // INPUT-01.1 新增：素材预加载状态
+    this._assetsReady = false;
+    this._assetsStat = null;
   }
 
   _ensureBackground() {
@@ -63,10 +67,20 @@ export default class PageRenderer {
     }
   }
 
+  _ensureAssetsPreload() {
+    if (this._assetsReady || this._assetsPromise) return;
+    this._assetsPromise = preloadAllCardImages().then((stat) => {
+      this._assetsStat = stat;
+      this._assetsReady = true;
+    }).catch((err) => {
+      console.warn('[PageRenderer] asset preload error, will use fallback:', err);
+      this._assetsReady = true;
+    });
+  }
+
   _computeLayout() {
     const sx = this.ui.width / DESIGN_W;
     const sy = this.ui.height / DESIGN_H;
-    // 等比缩放（取小值，居中偏移由锚点直接乘）
     const scale = Math.min(sx, sy);
     const offsetX = (this.ui.width - DESIGN_W * scale) / 2;
     const offsetY = (this.ui.height - DESIGN_H * scale) / 2;
@@ -94,7 +108,10 @@ export default class PageRenderer {
     const w = this.ui.width;
     const h = this.ui.height;
     if (page === PAGE.INDEX) return this._renderIndex(ctx, w, h);
-    if (page === PAGE.TABLE) return this._renderTable(ctx, w, h);
+    if (page === PAGE.TABLE) {
+      this._ensureAssetsPreload();
+      return this._renderTable(ctx, w, h);
+    }
     if (page === PAGE.GAME) return this._renderGame(ctx, w, h, params);
     if (page === PAGE.RESULT) return this._renderResult(ctx, w, h, params);
   }
@@ -145,7 +162,7 @@ export default class PageRenderer {
     this.buttonsCache[PAGE.INDEX] = buttons;
   }
 
-  // ---------------- TABLE (INPUT-01 核心) ----------------
+  // ---------------- TABLE (INPUT-01 核心；INPUT-01.1 视觉抛光) ----------------
   _renderTable(ctx, w, h) {
     this._ensureBackground();
     this.background.render();
@@ -175,7 +192,7 @@ export default class PageRenderer {
     };
     drawDealButton(ctx, dealBtn);
 
-    // 4 张牌位置
+    // 4 张牌（2×2 布局；发牌顺序：左上→右上→左下→右下 = 数组索引 0/1/2/3）
     const now = Date.now();
     for (let i = 0; i < 4; i++) {
       const pos = layout.cards[i];
@@ -198,14 +215,12 @@ export default class PageRenderer {
           card = this.dealtCards[i];
         }
       } else {
-        // DONE
         flip = 1;
         card = this.dealtCards[i];
       }
       drawCard(ctx, pos, card, flip);
     }
 
-    // 检查是否发牌全部完成
     if (this.dealState === DEAL_STATE.DEALING) {
       const totalMs = 3 * CARD_DELAY_MS + CARD_FLIP_MS;
       if (now - this.dealStartAt >= totalMs) {
@@ -226,10 +241,16 @@ export default class PageRenderer {
           : '本次发牌完成，点击"发牌"重发';
     ctx.fillText(tip, layout.hint.x, layout.hint.y);
 
-    // 发牌次数
+    // 素材预加载状态 + 发牌次数
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '12px sans-serif';
-    ctx.fillText(`已发牌次数：${this.dealCount}`, layout.hint.x, layout.hint.y + 22);
+    const stats = getPreloadStats();
+    const assetsLine = stats.started
+      ? (this._assetsReady
+          ? `素材：${stats.loaded}/${stats.total} 已加载${stats.failed ? `（${stats.failed} 失败已降级）` : ''}`
+          : `素材加载中… ${stats.loaded + stats.failed}/${stats.total}`)
+      : '素材：未开始';
+    ctx.fillText(`已发牌次数：${this.dealCount}    ${assetsLine}`, layout.hint.x, layout.hint.y + 22);
 
     this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn];
   }
@@ -285,7 +306,6 @@ export default class PageRenderer {
     if (params && params.solution) {
       ctx.fillText(`参考解：${params.solution}`, w / 2, h * 0.45);
     }
-
     const btnW = w * 0.6;
     const btnH = 56;
     const gap = 16;
@@ -306,7 +326,7 @@ export default class PageRenderer {
 
   _dealAction() {
     if (this.dealState === DEAL_STATE.DEALING) return;
-    // 每轮独立洗牌，无放回抽 4 张
+    // 每轮独立洗牌，无放回抽 4 张（算法未改）
     this.dealtCards = this.deck.deal(4);
     this.dealCount += 1;
     this.dealState = DEAL_STATE.DEALING;
