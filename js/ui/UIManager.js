@@ -1,10 +1,12 @@
 // m24 - UIManager.js
-// UI 管理器：拿到 canvas 上下文，负责场景切换与顶层渲染入口（骨架版）
+// UI 管理器：拿到 canvas 上下文，负责场景切换与顶层渲染入口
+// INPUT-01：新增 TABLE 页面
 
 import PageRenderer from './PageRenderer';
 
 const PAGE = {
   INDEX: 'index',
+  TABLE: 'table',
   GAME: 'game',
   RESULT: 'result',
 };
@@ -13,7 +15,7 @@ export default class UIManager {
   constructor() {
     this.canvas = typeof canvas !== 'undefined' ? canvas : wx.createCanvas();
     this.ctx = this.canvas.getContext('2d');
-    const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { windowWidth: 375, windowHeight: 667 };
+    const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { windowWidth: 411, windowHeight: 891 };
     this.width = sys.windowWidth;
     this.height = sys.windowHeight;
     this.currentPage = PAGE.INDEX;
