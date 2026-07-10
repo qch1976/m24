@@ -1,5 +1,6 @@
 // m24 - CardRenderer.js
 // INPUT-01.1：改造为图片渲染优先 + Canvas 手绘降级
+// INPUT-01.1 hotfix：卡面浅米白底 + 圆角深灰细描边 + 图片内缩 15%（正面/背面/手绘降级统一处理）
 // 图片来源：hayeah/playing-cards-assets (MIT License) — 见 images/cards/LICENSE
 // 命名约定：{suit}-{rank}.png / joker-big.png / joker-small.png / back.png
 // 保留 INPUT-01 的手绘实现作为图片加载失败时的兜底，确保游戏可跑
@@ -7,7 +8,15 @@
 import { roundRect } from './Components';
 
 const CARD_BASE_PATH = 'images/cards/';
-const CARD_BG = '#FFFFFF';
+
+// hotfix 视觉常量（4 项一起改：底色 + 描边色 + 描边宽度 + 圆角半径 + 内缩比例）
+const CARD_BASE_COLOR = '#FFFEF5';   // 浅米白（Bug1 修复）
+const CARD_STROKE_COLOR = '#333333'; // 深灰细描边（额外需求）
+const CARD_STROKE_WIDTH = 1;
+const CARD_CORNER_RADIUS = 10;       // 8~10 DP，取 10 让 120×170 卡稍有质感
+const CARD_INSET_RATIO = 0.15;       // 15% 内边距（Bug2 修复）
+
+// 手绘降级用色
 const CARD_BACK_BG = '#1F3A8A';
 const CARD_BACK_STRIPE = '#2C4FBE';
 const RED_COLOR = '#D32F2F';
@@ -40,9 +49,6 @@ function _createImage() {
   return new Image();
 }
 
-/**
- * 收集全部 55 张需要预加载的图片 id
- */
 function _allImageIds() {
   const ids = [];
   const suits = ['spade', 'heart', 'diamond', 'club'];
@@ -74,7 +80,6 @@ function _loadOne(id) {
 
 /**
  * 预加载全部 55 张扑克素材
- * @returns {Promise<{loaded:number, failed:number, total:number}>}
  */
 export function preloadAllCardImages() {
   if (preloadPromise) return preloadPromise;
@@ -107,44 +112,93 @@ export function getPreloadStats() {
   };
 }
 
-// ==================== 手绘降级实现（保留自 INPUT-01） ====================
+// ==================== hotfix 通用工具 ====================
+
+/**
+ * 绘制卡片基底：浅米白圆角背景 + 深灰细描边
+ * 所有分支（正面图片 / 背面图片 / 手绘降级正面 / 手绘降级背面）都先调用这个
+ */
+function _drawCardBase(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.fillStyle = CARD_BASE_COLOR;
+  roundRect(ctx, x, y, w, h, CARD_CORNER_RADIUS);
+  ctx.fill();
+  ctx.restore();
+}
+
+/**
+ * 在 base 之后绘制外框描边（放在最后，确保盖在图片上层保留描边效果）
+ */
+function _drawCardStroke(ctx, x, y, w, h) {
+  ctx.save();
+  ctx.strokeStyle = CARD_STROKE_COLOR;
+  ctx.lineWidth = CARD_STROKE_WIDTH;
+  // 内缩半个 lineWidth 让描边不被裁切
+  const half = CARD_STROKE_WIDTH / 2;
+  roundRect(ctx, x + half, y + half, w - CARD_STROKE_WIDTH, h - CARD_STROKE_WIDTH, CARD_CORNER_RADIUS);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * 15% 内缩后的图片绘制目标矩形
+ */
+function _insetRect(x, y, w, h) {
+  const padX = w * CARD_INSET_RATIO;
+  const padY = h * CARD_INSET_RATIO;
+  return {
+    x: x + padX,
+    y: y + padY,
+    w: w - 2 * padX,
+    h: h - 2 * padY,
+  };
+}
+
+// ==================== 手绘降级实现（保留自 INPUT-01，风格向 hotfix 对齐） ====================
 
 function _suitColor(card) {
   if (card.isJoker) return JOKER_GOLD;
   return card.isRed ? RED_COLOR : BLACK_COLOR;
 }
 
+/**
+ * 手绘背面（图片加载失败时使用）
+ * hotfix：基底改为浅米白 + 圆角 + 深灰描边；蓝色斜纹作为装饰画在内缩区域，四周留白
+ */
 function _fallbackDrawBack(ctx, x, y, w, h) {
+  // 1. 卡面基底
+  _drawCardBase(ctx, x, y, w, h);
+
+  // 2. 内缩区域画背面纹样（保留 INPUT-01 蓝色斜纹但缩小到内缩区）
+  const inner = _insetRect(x, y, w, h);
   ctx.save();
-  ctx.fillStyle = CARD_BACK_BG;
-  roundRect(ctx, x, y, w, h, 8);
-  ctx.fill();
-  ctx.save();
+  // clip 到内缩圆角矩形
   ctx.beginPath();
-  roundRect(ctx, x, y, w, h, 8);
+  roundRect(ctx, inner.x, inner.y, inner.w, inner.h, Math.max(CARD_CORNER_RADIUS - 4, 4));
   ctx.clip();
+
+  ctx.fillStyle = CARD_BACK_BG;
+  ctx.fillRect(inner.x, inner.y, inner.w, inner.h);
+
   ctx.strokeStyle = CARD_BACK_STRIPE;
   ctx.lineWidth = 1;
   ctx.beginPath();
   const step = 10;
-  for (let i = -h; i < w; i += step) {
-    ctx.moveTo(x + i, y);
-    ctx.lineTo(x + i + h, y + h);
+  for (let i = -inner.h; i < inner.w; i += step) {
+    ctx.moveTo(inner.x + i, inner.y);
+    ctx.lineTo(inner.x + i + inner.h, inner.y + inner.h);
   }
-  for (let i = 0; i < w + h; i += step) {
-    ctx.moveTo(x + i, y);
-    ctx.lineTo(x + i - h, y + h);
+  for (let i = 0; i < inner.w + inner.h; i += step) {
+    ctx.moveTo(inner.x + i, inner.y);
+    ctx.lineTo(inner.x + i - inner.h, inner.y + inner.h);
   }
   ctx.stroke();
-  ctx.restore();
-  ctx.strokeStyle = '#0F1E4B';
-  ctx.lineWidth = 2;
-  roundRect(ctx, x + 1, y + 1, w - 2, h - 2, 7);
-  ctx.stroke();
+
+  // 内缩区中心菱形
+  const cx = inner.x + inner.w / 2;
+  const cy = inner.y + inner.h / 2;
+  const d = Math.min(inner.w, inner.h) * 0.12;
   ctx.fillStyle = '#F5D400';
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  const d = Math.min(w, h) * 0.1;
   ctx.beginPath();
   ctx.moveTo(cx, cy - d);
   ctx.lineTo(cx + d * 0.8, cy);
@@ -152,20 +206,22 @@ function _fallbackDrawBack(ctx, x, y, w, h) {
   ctx.lineTo(cx - d * 0.8, cy);
   ctx.closePath();
   ctx.fill();
+
   ctx.restore();
+
+  // 3. 外框描边
+  _drawCardStroke(ctx, x, y, w, h);
 }
 
+/**
+ * 手绘正面（图片加载失败时使用）
+ * hotfix：基底改为浅米白 + 圆角 + 深灰描边；文字位置沿用相对比例
+ */
 function _fallbackDrawFront(ctx, x, y, w, h, card) {
-  ctx.save();
-  ctx.fillStyle = CARD_BG;
-  roundRect(ctx, x, y, w, h, 8);
-  ctx.fill();
-  ctx.strokeStyle = '#B0B0B0';
-  ctx.lineWidth = 1;
-  roundRect(ctx, x + 0.5, y + 0.5, w - 1, h - 1, 8);
-  ctx.stroke();
+  _drawCardBase(ctx, x, y, w, h);
 
   const color = _suitColor(card);
+  ctx.save();
   ctx.fillStyle = color;
 
   if (card.isJoker) {
@@ -176,10 +232,10 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
     ctx.font = `bold ${Math.floor(h * 0.08)}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('JOKER', x + w * 0.06, y + h * 0.05);
+    ctx.fillText('JOKER', x + w * 0.08, y + h * 0.06);
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('JOKER', x + w - w * 0.06, y + h - h * 0.05);
+    ctx.fillText('JOKER', x + w - w * 0.08, y + h - h * 0.06);
   } else {
     const rankText = card.rank;
     const suitSym = SUIT_SYMBOL[card.suit] || '';
@@ -188,12 +244,12 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = `bold ${smallFontR}px sans-serif`;
-    ctx.fillText(rankText, x + w * 0.06, y + h * 0.05);
+    ctx.fillText(rankText, x + w * 0.08, y + h * 0.06);
     ctx.font = `${smallFontS}px sans-serif`;
-    ctx.fillText(suitSym, x + w * 0.06, y + h * 0.05 + smallFontR + 2);
+    ctx.fillText(suitSym, x + w * 0.08, y + h * 0.06 + smallFontR + 2);
     // 右下镜像
     ctx.save();
-    ctx.translate(x + w - w * 0.06, y + h - h * 0.05);
+    ctx.translate(x + w - w * 0.08, y + h - h * 0.06);
     ctx.rotate(Math.PI);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -210,6 +266,33 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
     ctx.fillText(suitSym, x + w / 2, y + h / 2);
   }
   ctx.restore();
+
+  // 描边最后画，确保覆盖内容边缘
+  _drawCardStroke(ctx, x, y, w, h);
+}
+
+/**
+ * 使用图片绘制正面或背面：先画基底 → 内缩 15% 绘制图片 → 外框描边
+ * @param {HTMLImageElement|Object} img
+ */
+function _drawImageCard(ctx, x, y, w, h, img) {
+  // 1. 卡面基底（浅米白 + 圆角）
+  _drawCardBase(ctx, x, y, w, h);
+
+  // 2. 图片内缩 15% 居中绘制
+  const inner = _insetRect(x, y, w, h);
+  ctx.save();
+  try {
+    ctx.drawImage(img, inner.x, inner.y, inner.w, inner.h);
+  } catch (e) {
+    // drawImage 异常 → 交给上层降级
+    ctx.restore();
+    throw e;
+  }
+  ctx.restore();
+
+  // 3. 外框描边（画在最上层，确保描边线可见）
+  _drawCardStroke(ctx, x, y, w, h);
 }
 
 // ==================== 对外统一入口 ====================
@@ -217,7 +300,7 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
 /**
  * 绘制单张牌（支持翻转进度）
  * flip = 0 完全反面，flip = 1 完全正面
- * 图片可用时使用 drawImage；否则走降级方案
+ * 无论正面 / 背面 / 图片 / 手绘降级，都统一：圆角浅米白底 + 15% 内缩图片 + 深灰细描边
  */
 export function drawCard(ctx, pos, card, flip = 0) {
   const { x, y, w, h } = pos;
@@ -233,16 +316,14 @@ export function drawCard(ctx, pos, card, flip = 0) {
   ctx.translate(-(x + w / 2), -(y + h / 2));
 
   if (img && imageState.get(id) === LOAD_STATE.LOADED) {
-    // 图片渲染
     try {
-      ctx.drawImage(img, x, y, w, h);
+      _drawImageCard(ctx, x, y, w, h, img);
     } catch (e) {
       console.warn('[CardRenderer] drawImage failed, fallback:', id, e);
       if (showFront && card) _fallbackDrawFront(ctx, x, y, w, h, card);
       else _fallbackDrawBack(ctx, x, y, w, h);
     }
   } else {
-    // 降级：Canvas 手绘
     if (showFront && card) _fallbackDrawFront(ctx, x, y, w, h, card);
     else _fallbackDrawBack(ctx, x, y, w, h);
   }
