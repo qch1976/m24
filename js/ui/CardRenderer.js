@@ -1,23 +1,28 @@
 // m24 - CardRenderer.js
 // INPUT-01.1：改造为图片渲染优先 + Canvas 手绘降级
 // INPUT-01.1 hotfix：卡面浅米白底 + 圆角深灰细描边（保留）
-// INPUT-01.1 hotfix2：撤销图片 15% 内缩，图片 100% 充满卡片；牌背降级还原为 task-10 蓝色斜纹全铺
+// INPUT-01.1 hotfix2：正面图片 100% 充满；牌背图片路径回到 hayeah back.png（灰白网纹）
+// INPUT-01.1 hotfix3：
+//   - 正面图片改为 95% 充满（四周 2.5% 留白，`CARD_FRONT_INSET_RATIO`）
+//   - **禁用 hayeah back.png 图片路径**：preload 跳过 back，_drawBack 直接走手绘蓝斜纹（INPUT-01 风格）
+//   - back.png 文件本身保留在 images/cards/ 下，不删除素材
 // 图片来源：hayeah/playing-cards-assets (MIT License) — 见 images/cards/LICENSE
-// 命名约定：{suit}-{rank}.png / joker-big.png / joker-small.png / back.png
-// 保留 INPUT-01 的手绘实现作为图片加载失败时的兜底，确保游戏可跑
+// 命名约定：{suit}-{rank}.png / joker-big.png / joker-small.png / (back.png 已停用)
 
 import { roundRect } from './Components';
 
 const CARD_BASE_PATH = 'images/cards/';
 
 // hotfix 视觉常量（保留：底色 + 描边色 + 描边宽度 + 圆角半径）
-// hotfix2 移除：CARD_INSET_RATIO / _insetRect —— 图片 100% 铺满
 const CARD_BASE_COLOR = '#FFFEF5';   // 浅米白（Bug1 修复，保留）
 const CARD_STROKE_COLOR = '#333333'; // 深灰细描边（保留）
 const CARD_STROKE_WIDTH = 1;
 const CARD_CORNER_RADIUS = 10;       // 8~10 DP，取 10 让 120×170 卡稍有质感
 
-// 手绘降级用色（back 降级回滚到 task-10 版本：全卡蓝色斜纹）
+// hotfix3 视觉常量
+const CARD_FRONT_INSET_RATIO = 0.025;  // 正面图片两侧各 2.5% 留白 → 95% 充满
+
+// 手绘用色（牌背蓝色斜纹 = INPUT-01 原风格，hotfix3 起牌背固定手绘）
 const CARD_BACK_BG = '#1F3A8A';
 const CARD_BACK_STRIPE = '#2C4FBE';
 const RED_COLOR = '#D32F2F';
@@ -50,6 +55,10 @@ function _createImage() {
   return new Image();
 }
 
+/**
+ * 收集需要预加载的图片 id
+ * hotfix3：**跳过 back**，牌背固定手绘 —— 避免灰白 back.png 加载完成后覆盖蓝斜纹
+ */
 function _allImageIds() {
   const ids = [];
   const suits = ['spade', 'heart', 'diamond', 'club'];
@@ -57,7 +66,7 @@ function _allImageIds() {
   for (const s of suits) for (const r of ranks) ids.push(`${s}-${r}`);
   ids.push('joker-big');
   ids.push('joker-small');
-  ids.push('back');
+  // 注意：hotfix3 不再 push 'back'，即 preloadAllCardImages 也不会去加载它
   return ids;
 }
 
@@ -80,7 +89,7 @@ function _loadOne(id) {
 }
 
 /**
- * 预加载全部 55 张扑克素材
+ * 预加载全部正面 54 张扑克素材（不含 back）
  */
 export function preloadAllCardImages() {
   if (preloadPromise) return preloadPromise;
@@ -117,7 +126,7 @@ export function getPreloadStats() {
 
 /**
  * 绘制卡片基底：浅米白圆角背景
- * hotfix2：所有分支（正面图片 / 背面图片 / 手绘降级正面 / 手绘降级背面）都先调用
+ * 所有分支（正面图片 / 手绘背面 / 手绘降级正面）都先调用
  */
 function _drawCardBase(ctx, x, y, w, h) {
   ctx.save();
@@ -128,7 +137,7 @@ function _drawCardBase(ctx, x, y, w, h) {
 }
 
 /**
- * 外框描边（放在最后，确保盖在图片上层保留描边效果）
+ * 外框描边（放在最后，确保盖在内容上层保留描边效果）
  */
 function _drawCardStroke(ctx, x, y, w, h) {
   ctx.save();
@@ -141,7 +150,7 @@ function _drawCardStroke(ctx, x, y, w, h) {
   ctx.restore();
 }
 
-// ==================== 手绘降级实现（回滚到 task-10 版本，不再限制在内缩区） ====================
+// ==================== 手绘实现 ====================
 
 function _suitColor(card) {
   if (card.isJoker) return JOKER_GOLD;
@@ -149,15 +158,14 @@ function _suitColor(card) {
 }
 
 /**
- * 手绘背面（图片加载失败时使用）
- * hotfix2：回滚到 task-10（INPUT-01.1 原版）风格——蓝色斜纹铺满整张牌；
- *          外层保留 hotfix 圆角浅米白底色 + 深灰描边（R3 要求）
+ * 手绘背面（INPUT-01 蓝色斜纹 + 黄色中央菱形）
+ * hotfix3：牌背固定走此路径（不再有图片分支），并保留 hotfix 底色/圆角/描边
  */
 function _fallbackDrawBack(ctx, x, y, w, h) {
   // 1. 卡面基底（浅米白 + 圆角） —— R3 保留
   _drawCardBase(ctx, x, y, w, h);
 
-  // 2. 蓝色斜纹全卡铺（task-10 版本，不再 clip 到内缩区）
+  // 2. INPUT-01 手绘蓝色斜纹铺满卡面（clip 到圆角，避免溢出圆角外）
   ctx.save();
   ctx.beginPath();
   roundRect(ctx, x, y, w, h, CARD_CORNER_RADIUS);
@@ -180,7 +188,7 @@ function _fallbackDrawBack(ctx, x, y, w, h) {
   }
   ctx.stroke();
 
-  // 中央菱形装饰
+  // 中央黄色菱形
   const cx = x + w / 2;
   const cy = y + h / 2;
   const d = Math.min(w, h) * 0.1;
@@ -200,9 +208,8 @@ function _fallbackDrawBack(ctx, x, y, w, h) {
 }
 
 /**
- * 手绘正面（图片加载失败时使用）
- * hotfix2：撤销 clip / 撤销内缩定位偏移，恢复 task-10 版本的文字位置（0.06 / 0.05）
- * 外层保留 hotfix 圆角浅米白底色 + 深灰描边（R3 要求）
+ * 手绘正面（图片加载失败时使用；正常路径走 _drawImageCard）
+ * 外层保留 hotfix 浅米白底 + 圆角 + 深灰描边
  */
 function _fallbackDrawFront(ctx, x, y, w, h, card) {
   _drawCardBase(ctx, x, y, w, h);
@@ -259,26 +266,27 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
 }
 
 /**
- * 使用图片绘制正面或背面：先画基底 → 图片 100% 充满卡面 → 外框描边
- * hotfix2：撤销 15% 内缩，图片直接铺满整个卡片矩形（120×170 DP）
+ * 使用图片绘制正面：底色 → 95% 充满绘制图片 → 外框描边
+ * hotfix3：正面从 100% 缩回 95%（`CARD_FRONT_INSET_RATIO = 0.025` 两侧各 2.5%）
  * @param {HTMLImageElement|Object} img
  */
 function _drawImageCard(ctx, x, y, w, h, img) {
-  // 1. 卡面基底（浅米白 + 圆角） —— 图片若有透明区可透出米白（R3 保留）
+  // 1. 卡面基底（浅米白 + 圆角） —— 图片若有透明区可透出米白
   _drawCardBase(ctx, x, y, w, h);
 
-  // 2. 图片 100% 铺满整张卡片矩形（hotfix2 核心变更）
+  // 2. 图片 95% 铺满（hotfix3 微调）
   ctx.save();
   try {
-    ctx.drawImage(img, x, y, w, h);
+    const padX = w * CARD_FRONT_INSET_RATIO;
+    const padY = h * CARD_FRONT_INSET_RATIO;
+    ctx.drawImage(img, x + padX, y + padY, w - 2 * padX, h - 2 * padY);
   } catch (e) {
-    // drawImage 异常 → 交给上层降级
     ctx.restore();
     throw e;
   }
   ctx.restore();
 
-  // 3. 外框描边（画在最上层，确保描边线可见） —— R3 保留
+  // 3. 外框描边
   _drawCardStroke(ctx, x, y, w, h);
 }
 
@@ -287,33 +295,39 @@ function _drawImageCard(ctx, x, y, w, h, img) {
 /**
  * 绘制单张牌（支持翻转进度）
  * flip = 0 完全反面，flip = 1 完全正面
- * hotfix2：图片 100% 铺满卡面（撤销 15% 内缩）；保留浅米白底 + 圆角 + 深灰描边
+ * hotfix3：
+ *   - 正面：图片 95% 充满（若已加载）；否则手绘降级
+ *   - 反面：**恒定走手绘蓝斜纹**（禁用 hayeah back.png 图片路径），避免 1~2 秒后被灰白图覆盖
  */
 export function drawCard(ctx, pos, card, flip = 0) {
   const { x, y, w, h } = pos;
   const scaleX = Math.abs(flip - 0.5) * 2;
   const showFront = flip >= 0.5;
 
-  const id = showFront && card ? card.id : 'back';
-  const img = imageCache.get(id);
-
   ctx.save();
   ctx.translate(x + w / 2, y + h / 2);
   ctx.scale(scaleX || 0.01, 1);
   ctx.translate(-(x + w / 2), -(y + h / 2));
 
-  if (img && imageState.get(id) === LOAD_STATE.LOADED) {
-    try {
-      _drawImageCard(ctx, x, y, w, h, img);
-    } catch (e) {
-      console.warn('[CardRenderer] drawImage failed, fallback:', id, e);
-      if (showFront && card) _fallbackDrawFront(ctx, x, y, w, h, card);
-      else _fallbackDrawBack(ctx, x, y, w, h);
+  if (showFront && card) {
+    // 正面：优先图片，否则降级手绘
+    const id = card.id;
+    const img = imageCache.get(id);
+    if (img && imageState.get(id) === LOAD_STATE.LOADED) {
+      try {
+        _drawImageCard(ctx, x, y, w, h, img);
+      } catch (e) {
+        console.warn('[CardRenderer] drawImage failed, fallback:', id, e);
+        _fallbackDrawFront(ctx, x, y, w, h, card);
+      }
+    } else {
+      _fallbackDrawFront(ctx, x, y, w, h, card);
     }
   } else {
-    if (showFront && card) _fallbackDrawFront(ctx, x, y, w, h, card);
-    else _fallbackDrawBack(ctx, x, y, w, h);
+    // 反面：hotfix3 起恒定走手绘蓝斜纹，不再读取 imageCache.get('back')
+    _fallbackDrawBack(ctx, x, y, w, h);
   }
+
   ctx.restore();
 }
 
