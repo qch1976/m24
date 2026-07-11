@@ -1,6 +1,7 @@
 // m24 - CardRenderer.js
 // INPUT-01.1：改造为图片渲染优先 + Canvas 手绘降级
-// INPUT-01.1 hotfix：卡面浅米白底 + 圆角深灰细描边 + 图片内缩 15%（正面/背面/手绘降级统一处理）
+// INPUT-01.1 hotfix：卡面浅米白底 + 圆角深灰细描边（保留）
+// INPUT-01.1 hotfix2：撤销图片 15% 内缩，图片 100% 充满卡片；牌背降级还原为 task-10 蓝色斜纹全铺
 // 图片来源：hayeah/playing-cards-assets (MIT License) — 见 images/cards/LICENSE
 // 命名约定：{suit}-{rank}.png / joker-big.png / joker-small.png / back.png
 // 保留 INPUT-01 的手绘实现作为图片加载失败时的兜底，确保游戏可跑
@@ -9,14 +10,14 @@ import { roundRect } from './Components';
 
 const CARD_BASE_PATH = 'images/cards/';
 
-// hotfix 视觉常量（4 项一起改：底色 + 描边色 + 描边宽度 + 圆角半径 + 内缩比例）
-const CARD_BASE_COLOR = '#FFFEF5';   // 浅米白（Bug1 修复）
-const CARD_STROKE_COLOR = '#333333'; // 深灰细描边（额外需求）
+// hotfix 视觉常量（保留：底色 + 描边色 + 描边宽度 + 圆角半径）
+// hotfix2 移除：CARD_INSET_RATIO / _insetRect —— 图片 100% 铺满
+const CARD_BASE_COLOR = '#FFFEF5';   // 浅米白（Bug1 修复，保留）
+const CARD_STROKE_COLOR = '#333333'; // 深灰细描边（保留）
 const CARD_STROKE_WIDTH = 1;
 const CARD_CORNER_RADIUS = 10;       // 8~10 DP，取 10 让 120×170 卡稍有质感
-const CARD_INSET_RATIO = 0.15;       // 15% 内边距（Bug2 修复）
 
-// 手绘降级用色
+// 手绘降级用色（back 降级回滚到 task-10 版本：全卡蓝色斜纹）
 const CARD_BACK_BG = '#1F3A8A';
 const CARD_BACK_STRIPE = '#2C4FBE';
 const RED_COLOR = '#D32F2F';
@@ -115,8 +116,8 @@ export function getPreloadStats() {
 // ==================== hotfix 通用工具 ====================
 
 /**
- * 绘制卡片基底：浅米白圆角背景 + 深灰细描边
- * 所有分支（正面图片 / 背面图片 / 手绘降级正面 / 手绘降级背面）都先调用这个
+ * 绘制卡片基底：浅米白圆角背景
+ * hotfix2：所有分支（正面图片 / 背面图片 / 手绘降级正面 / 手绘降级背面）都先调用
  */
 function _drawCardBase(ctx, x, y, w, h) {
   ctx.save();
@@ -127,7 +128,7 @@ function _drawCardBase(ctx, x, y, w, h) {
 }
 
 /**
- * 在 base 之后绘制外框描边（放在最后，确保盖在图片上层保留描边效果）
+ * 外框描边（放在最后，确保盖在图片上层保留描边效果）
  */
 function _drawCardStroke(ctx, x, y, w, h) {
   ctx.save();
@@ -140,21 +141,7 @@ function _drawCardStroke(ctx, x, y, w, h) {
   ctx.restore();
 }
 
-/**
- * 15% 内缩后的图片绘制目标矩形
- */
-function _insetRect(x, y, w, h) {
-  const padX = w * CARD_INSET_RATIO;
-  const padY = h * CARD_INSET_RATIO;
-  return {
-    x: x + padX,
-    y: y + padY,
-    w: w - 2 * padX,
-    h: h - 2 * padY,
-  };
-}
-
-// ==================== 手绘降级实现（保留自 INPUT-01，风格向 hotfix 对齐） ====================
+// ==================== 手绘降级实现（回滚到 task-10 版本，不再限制在内缩区） ====================
 
 function _suitColor(card) {
   if (card.isJoker) return JOKER_GOLD;
@@ -163,41 +150,40 @@ function _suitColor(card) {
 
 /**
  * 手绘背面（图片加载失败时使用）
- * hotfix：基底改为浅米白 + 圆角 + 深灰描边；蓝色斜纹作为装饰画在内缩区域，四周留白
+ * hotfix2：回滚到 task-10（INPUT-01.1 原版）风格——蓝色斜纹铺满整张牌；
+ *          外层保留 hotfix 圆角浅米白底色 + 深灰描边（R3 要求）
  */
 function _fallbackDrawBack(ctx, x, y, w, h) {
-  // 1. 卡面基底
+  // 1. 卡面基底（浅米白 + 圆角） —— R3 保留
   _drawCardBase(ctx, x, y, w, h);
 
-  // 2. 内缩区域画背面纹样（保留 INPUT-01 蓝色斜纹但缩小到内缩区）
-  const inner = _insetRect(x, y, w, h);
+  // 2. 蓝色斜纹全卡铺（task-10 版本，不再 clip 到内缩区）
   ctx.save();
-  // clip 到内缩圆角矩形
   ctx.beginPath();
-  roundRect(ctx, inner.x, inner.y, inner.w, inner.h, Math.max(CARD_CORNER_RADIUS - 4, 4));
+  roundRect(ctx, x, y, w, h, CARD_CORNER_RADIUS);
   ctx.clip();
 
   ctx.fillStyle = CARD_BACK_BG;
-  ctx.fillRect(inner.x, inner.y, inner.w, inner.h);
+  ctx.fillRect(x, y, w, h);
 
   ctx.strokeStyle = CARD_BACK_STRIPE;
   ctx.lineWidth = 1;
   ctx.beginPath();
   const step = 10;
-  for (let i = -inner.h; i < inner.w; i += step) {
-    ctx.moveTo(inner.x + i, inner.y);
-    ctx.lineTo(inner.x + i + inner.h, inner.y + inner.h);
+  for (let i = -h; i < w; i += step) {
+    ctx.moveTo(x + i, y);
+    ctx.lineTo(x + i + h, y + h);
   }
-  for (let i = 0; i < inner.w + inner.h; i += step) {
-    ctx.moveTo(inner.x + i, inner.y);
-    ctx.lineTo(inner.x + i - inner.h, inner.y + inner.h);
+  for (let i = 0; i < w + h; i += step) {
+    ctx.moveTo(x + i, y);
+    ctx.lineTo(x + i - h, y + h);
   }
   ctx.stroke();
 
-  // 内缩区中心菱形
-  const cx = inner.x + inner.w / 2;
-  const cy = inner.y + inner.h / 2;
-  const d = Math.min(inner.w, inner.h) * 0.12;
+  // 中央菱形装饰
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const d = Math.min(w, h) * 0.1;
   ctx.fillStyle = '#F5D400';
   ctx.beginPath();
   ctx.moveTo(cx, cy - d);
@@ -209,13 +195,14 @@ function _fallbackDrawBack(ctx, x, y, w, h) {
 
   ctx.restore();
 
-  // 3. 外框描边
+  // 3. 外框描边（R3 保留）
   _drawCardStroke(ctx, x, y, w, h);
 }
 
 /**
  * 手绘正面（图片加载失败时使用）
- * hotfix：基底改为浅米白 + 圆角 + 深灰描边；文字位置沿用相对比例
+ * hotfix2：撤销 clip / 撤销内缩定位偏移，恢复 task-10 版本的文字位置（0.06 / 0.05）
+ * 外层保留 hotfix 圆角浅米白底色 + 深灰描边（R3 要求）
  */
 function _fallbackDrawFront(ctx, x, y, w, h, card) {
   _drawCardBase(ctx, x, y, w, h);
@@ -232,10 +219,10 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
     ctx.font = `bold ${Math.floor(h * 0.08)}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.fillText('JOKER', x + w * 0.08, y + h * 0.06);
+    ctx.fillText('JOKER', x + w * 0.06, y + h * 0.05);
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('JOKER', x + w - w * 0.08, y + h - h * 0.06);
+    ctx.fillText('JOKER', x + w - w * 0.06, y + h - h * 0.05);
   } else {
     const rankText = card.rank;
     const suitSym = SUIT_SYMBOL[card.suit] || '';
@@ -244,12 +231,12 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = `bold ${smallFontR}px sans-serif`;
-    ctx.fillText(rankText, x + w * 0.08, y + h * 0.06);
+    ctx.fillText(rankText, x + w * 0.06, y + h * 0.05);
     ctx.font = `${smallFontS}px sans-serif`;
-    ctx.fillText(suitSym, x + w * 0.08, y + h * 0.06 + smallFontR + 2);
+    ctx.fillText(suitSym, x + w * 0.06, y + h * 0.05 + smallFontR + 2);
     // 右下镜像
     ctx.save();
-    ctx.translate(x + w - w * 0.08, y + h - h * 0.06);
+    ctx.translate(x + w - w * 0.06, y + h - h * 0.05);
     ctx.rotate(Math.PI);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -272,18 +259,18 @@ function _fallbackDrawFront(ctx, x, y, w, h, card) {
 }
 
 /**
- * 使用图片绘制正面或背面：先画基底 → 内缩 15% 绘制图片 → 外框描边
+ * 使用图片绘制正面或背面：先画基底 → 图片 100% 充满卡面 → 外框描边
+ * hotfix2：撤销 15% 内缩，图片直接铺满整个卡片矩形（120×170 DP）
  * @param {HTMLImageElement|Object} img
  */
 function _drawImageCard(ctx, x, y, w, h, img) {
-  // 1. 卡面基底（浅米白 + 圆角）
+  // 1. 卡面基底（浅米白 + 圆角） —— 图片若有透明区可透出米白（R3 保留）
   _drawCardBase(ctx, x, y, w, h);
 
-  // 2. 图片内缩 15% 居中绘制
-  const inner = _insetRect(x, y, w, h);
+  // 2. 图片 100% 铺满整张卡片矩形（hotfix2 核心变更）
   ctx.save();
   try {
-    ctx.drawImage(img, inner.x, inner.y, inner.w, inner.h);
+    ctx.drawImage(img, x, y, w, h);
   } catch (e) {
     // drawImage 异常 → 交给上层降级
     ctx.restore();
@@ -291,7 +278,7 @@ function _drawImageCard(ctx, x, y, w, h, img) {
   }
   ctx.restore();
 
-  // 3. 外框描边（画在最上层，确保描边线可见）
+  // 3. 外框描边（画在最上层，确保描边线可见） —— R3 保留
   _drawCardStroke(ctx, x, y, w, h);
 }
 
@@ -300,7 +287,7 @@ function _drawImageCard(ctx, x, y, w, h, img) {
 /**
  * 绘制单张牌（支持翻转进度）
  * flip = 0 完全反面，flip = 1 完全正面
- * 无论正面 / 背面 / 图片 / 手绘降级，都统一：圆角浅米白底 + 15% 内缩图片 + 深灰细描边
+ * hotfix2：图片 100% 铺满卡面（撤销 15% 内缩）；保留浅米白底 + 圆角 + 深灰描边
  */
 export function drawCard(ctx, pos, card, flip = 0) {
   const { x, y, w, h } = pos;
