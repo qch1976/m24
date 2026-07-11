@@ -1,6 +1,7 @@
 // m24 - UIManager.js
 // UI 管理器：拿到 canvas 上下文，负责场景切换与顶层渲染入口
 // INPUT-01：新增 TABLE 页面
+// INPUT-02：constructor 接收 gameCore 引用，用于 PageRenderer 侧持有全解（R-03）
 
 import PageRenderer from './PageRenderer';
 
@@ -12,7 +13,8 @@ const PAGE = {
 };
 
 export default class UIManager {
-  constructor() {
+  constructor(gameCore) {
+    this.gameCore = gameCore || null;
     this.canvas = typeof canvas !== 'undefined' ? canvas : wx.createCanvas();
     this.ctx = this.canvas.getContext('2d');
     const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : { windowWidth: 411, windowHeight: 891 };

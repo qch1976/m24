@@ -1,6 +1,6 @@
 // m24 - 游戏主入口
 // 从飞机射击 template 改造为 24 点小游戏（准备阶段骨架）
-// 保留 base/libs/runtime/music 供后续复用
+// INPUT-02：把 gameCore 引用传给 UIManager，供 PageRenderer 通过 this.ui.gameCore 调用 recordSolutions
 
 import GameCore from './core/GameCore';
 import UIManager from './ui/UIManager';
@@ -8,7 +8,7 @@ import UIManager from './ui/UIManager';
 export default class Main {
   constructor() {
     this.gameCore = new GameCore();
-    this.uiManager = new UIManager();
+    this.uiManager = new UIManager(this.gameCore);
 
     // 全局分享入口（点击右上角胶囊 -> 转发）
     if (wx.onShareAppMessage) {

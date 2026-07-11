@@ -326,8 +326,14 @@ export default class PageRenderer {
 
   _dealAction() {
     if (this.dealState === DEAL_STATE.DEALING) return;
-    // 每轮独立洗牌，无放回抽 4 张（算法未改）
-    this.dealtCards = this.deck.deal(4);
+    // INPUT-02：仅以下 2 行改动（Manager 方案 X 批准的最小 diff）：
+    //   1) deal(4) → dealSolvable(4)（保证发牌可解）
+    //   2) 拿到 4 张后调用 gameCore.recordSolutions(cards) 持有全解（R-03）
+    // 布局 / 翻牌动画 / 状态机 / 按钮 / 文字 / 视觉常量均保持不变
+    this.dealtCards = this.deck.dealSolvable(4);
+    if (this.ui && this.ui.gameCore && typeof this.ui.gameCore.recordSolutions === 'function') {
+      this.ui.gameCore.recordSolutions(this.dealtCards);
+    }
     this.dealCount += 1;
     this.dealState = DEAL_STATE.DEALING;
     this.dealStartAt = Date.now();
