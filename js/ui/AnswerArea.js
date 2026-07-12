@@ -327,12 +327,20 @@ export default class AnswerArea {
 
   _numberLabel(cardIndex) {
     const v = this.cardValues[cardIndex];
-    if (v === 0) return '0';
+    // 大小王：cardValues 都是 0，但通过 cardIndex 的位置区分（第一个 0 视为大王，第二个 0 视为小王）
+    if (v === 0) {
+      let jokerOrdinal = 0;
+      for (let i = 0; i <= cardIndex; i++) {
+        if (this.cardValues[i] === 0) jokerOrdinal++;
+      }
+      return jokerOrdinal === 1 ? '大王(0)' : '小王(0)';
+    }
     if (v === 1) return 'A(1)';
     if (v === 11) return 'J(11)';
     if (v === 12) return 'Q(12)';
     if (v === 13) return 'K(13)';
-    return String(v);
+    // 数字牌 2~10：面(点数) 格式
+    return `${v}(${v})`;
   }
 
   /**

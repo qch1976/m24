@@ -124,31 +124,34 @@ export default class GameCore {
   }
 
   // ============ INPUT-03 新增：答题判定入口 ============
-  // 契约（Architect 60 号）：
-  //   - 对用户 token 序列调用 Solver.evaluateExpression
+  // 契约（Architect 60 号修订版）：
+  //   - 仅两类失败：not_24 / division_by_zero
+  //   - 其他异常（未用满 / 空表达式 / 括号不匹配等前端已拦截）降级为 not_24 + console.error
   //   - 除零 → { pass:false, reason:'division_by_zero' }
-  //   - 非法表达式 → { pass:false, reason:'invalid_expression' }（前端已拦截，兼容兵）
-  //   - 未用满 4 张 → { pass:false, reason:'not_all_cards_used' }
   //   - 结果=24 → { pass:true, expression:'...' }
-  //   - 结果≠ 24 → { pass:false, reason:'not_24', actualValue:number, actualLabel:string }
+  //   - 结果≠ 24 → { pass:false, reason:'not_24', actualValue, actualLabel }
   // 现有函数字节不动
   checkAnswer(tokens, cardValues) {
     const values = cardValues || this.currentCardValues;
+    // 前置异常均降级 → not_24（内部 log，不向用户暴露错误类型）
     if (!tokens || tokens.length === 0) {
-      return { pass: false, reason: 'invalid_expression' };
+      console.error('[GameCore.checkAnswer] empty tokens; degrading to not_24');
+      return { pass: false, reason: 'not_24', actualValue: 0, actualLabel: '0' };
     }
     const usedIndices = tokens
       .filter((t) => t.type === 'number')
       .map((t) => t.cardIndex);
     if (usedIndices.length !== 4 || new Set(usedIndices).size !== 4) {
-      return { pass: false, reason: 'not_all_cards_used' };
+      console.error('[GameCore.checkAnswer] cards not fully used; degrading to not_24', usedIndices);
+      return { pass: false, reason: 'not_24', actualValue: 0, actualLabel: '0' };
     }
     const r = Solver.evaluateExpression(tokens, values);
     if (!r.success) {
       if (r.error === 'division_by_zero') {
         return { pass: false, reason: 'division_by_zero' };
       }
-      return { pass: false, reason: 'invalid_expression' };
+      console.error('[GameCore.checkAnswer] solver error; degrading to not_24', r.error);
+      return { pass: false, reason: 'not_24', actualValue: 0, actualLabel: '0' };
     }
     if (r.is24) {
       return { pass: true, expression: this.formatExpression(tokens, values) };

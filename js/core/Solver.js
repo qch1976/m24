@@ -286,8 +286,16 @@ function _evaluateTokens(tokens, cardValues) {
         case '-': r = subtractFractions(a, b); break;
         case '*': r = multiplyFractions(a, b); break;
         case '/': {
+          // 方案 B（Architect 60 号修订版确定）：前置检查 b.num===0，命中则抛内部错误；
+          // 不修改 divideFractions（保持 INPUT-02 字节零变化）
+          if (b.num === 0) {
+            const err = new Error('division_by_zero');
+            err.__m24DivByZero = true;
+            throw err;
+          }
           r = divideFractions(a, b);
           if (r === null) {
+            // 双保险：理论上上面已拦截；如果 divideFractions 因其它原因返 null也归一化为除零
             const err = new Error('division_by_zero');
             err.__m24DivByZero = true;
             throw err;

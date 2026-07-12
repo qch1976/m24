@@ -391,35 +391,34 @@ export default class PageRenderer {
     if (this.modal) this.modal.close();
   }
 
-  // INPUT-03：提交处理（需上下文重估 canSubmit、避免重入）
+  // INPUT-03（Architect 60 号修订版）：提交处理
+  // GameCore.checkAnswer 已保证只返回 2 类失败：not_24 / division_by_zero
+  // 本方法不再为其他 reason 兼容写文案（已在 GameCore 层降级）
   _doSubmit() {
     if (!this.answerArea.canSubmit()) return;
     const tokens = this.answerArea.getTokens();
     const cardValues = this.answerArea.cardValues;
     const gc = this.ui && this.ui.gameCore;
-    let result;
-    if (gc && typeof gc.checkAnswer === 'function') {
-      result = gc.checkAnswer(tokens, cardValues);
-    } else {
-      // 降级：若 GameCore 未提供，直接用 Solver
-      // 不应发生于本迭代，但保护不崩
-      result = { pass: false, reason: 'invalid_expression' };
+    if (!gc || typeof gc.checkAnswer !== 'function') {
+      // 不应发生；保护不崩
+      console.error('[PageRenderer._doSubmit] gameCore.checkAnswer missing');
+      return;
     }
+    const result = gc.checkAnswer(tokens, cardValues);
     if (result.pass) {
       this.modal.showPass(this.answerArea.getFormulaText());
-    } else {
-      let msg;
-      if (result.reason === 'division_by_zero') {
-        msg = '算式包含除零，无法求值';
-      } else if (result.reason === 'not_24') {
-        msg = `结果 = ${result.actualLabel != null ? result.actualLabel : result.actualValue}`;
-      } else if (result.reason === 'not_all_cards_used') {
-        msg = '未用满 4 张牌';
-      } else {
-        msg = '算式非法';
-      }
-      this.modal.showFail(msg);
+      return;
     }
+    // 仅两类失败文案（严禁泄题：不引用 getSolutions）
+    let msg;
+    if (result.reason === 'division_by_zero') {
+      msg = '算式包含除零，无法求值';
+    } else {
+      // reason === 'not_24'（GameCore 降级保证）
+      const label = result.actualLabel != null ? result.actualLabel : String(result.actualValue);
+      msg = `结果 = ${label}`;
+    }
+    this.modal.showFail(msg);
   }
 
   _onButtonTap(page, key) {
