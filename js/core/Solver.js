@@ -199,4 +199,109 @@ export default class Solver {
   static normalize(exprNode) {
     return toCanonicalKey(exprNode);
   }
+
+  // ============ INPUT-03 新增：用户表达式求值 API ============
+  // 契约（Manager R-07 裁决 + Architect 60 号）：
+  //   - 分母为 0 → 返回 { success:false, error:'division_by_zero' }
+  //   - 求值成功 → 返回 { success:true, value: Fraction, is24: boolean }
+  //   - 表达式非法 → 返回 { success:false, error:'invalid_expression', detail? }
+  //   - 禁止返回 Infinity / NaN；禁止吞异常
+  // 现有 findSolutions/isSolvable/hasSolution/normalize 字节不动。
+  static evaluateExpression(tokens, cardValues) {
+    try {
+      return _evaluateTokens(tokens, cardValues);
+    } catch (e) {
+      if (e && e.__m24DivByZero) {
+        return { success: false, error: 'division_by_zero' };
+      }
+      return { success: false, error: 'invalid_expression', detail: e && e.message };
+    }
+  }
+
+  static is24Fraction(frac) {
+    if (!frac) return false;
+    return is24(frac);
+  }
+}
+
+// ============ 私有：Shunting-yard + RPN 分数求值 ============
+// Token 结构见 AnswerArea.js
+//   { type:'number', cardIndex }
+//   { type:'operator', value:'+'|'-'|'*'|'/' }
+//   { type:'left_paren' } / { type:'right_paren' }
+const _PRECEDENCE = { '+': 1, '-': 1, '*': 2, '/': 2 };
+
+function _tokensToRPN(tokens) {
+  const output = [];
+  const stack = [];
+  for (const t of tokens) {
+    if (t.type === 'number') {
+      output.push(t);
+    } else if (t.type === 'operator') {
+      while (stack.length) {
+        const top = stack[stack.length - 1];
+        if (top.type === 'operator' && _PRECEDENCE[top.value] >= _PRECEDENCE[t.value]) {
+          output.push(stack.pop());
+        } else break;
+      }
+      stack.push(t);
+    } else if (t.type === 'left_paren') {
+      stack.push(t);
+    } else if (t.type === 'right_paren') {
+      let popped = false;
+      while (stack.length) {
+        const top = stack.pop();
+        if (top.type === 'left_paren') { popped = true; break; }
+        output.push(top);
+      }
+      if (!popped) throw new Error('paren_mismatch');
+    } else {
+      throw new Error('unknown_token');
+    }
+  }
+  while (stack.length) {
+    const top = stack.pop();
+    if (top.type === 'left_paren') throw new Error('paren_mismatch');
+    output.push(top);
+  }
+  return output;
+}
+
+function _evaluateTokens(tokens, cardValues) {
+  if (!tokens || tokens.length === 0) throw new Error('empty');
+  const rpn = _tokensToRPN(tokens);
+  const stack = [];
+  for (const t of rpn) {
+    if (t.type === 'number') {
+      const v = cardValues[t.cardIndex];
+      if (typeof v !== 'number') throw new Error('invalid_card_index');
+      stack.push(intToFraction(v));
+    } else if (t.type === 'operator') {
+      if (stack.length < 2) throw new Error('rpn_underflow');
+      const b = stack.pop();
+      const a = stack.pop();
+      let r;
+      switch (t.value) {
+        case '+': r = addFractions(a, b); break;
+        case '-': r = subtractFractions(a, b); break;
+        case '*': r = multiplyFractions(a, b); break;
+        case '/': {
+          r = divideFractions(a, b);
+          if (r === null) {
+            const err = new Error('division_by_zero');
+            err.__m24DivByZero = true;
+            throw err;
+          }
+          break;
+        }
+        default: throw new Error('unknown_operator');
+      }
+      stack.push(r);
+    } else {
+      throw new Error('unexpected_token_in_rpn');
+    }
+  }
+  if (stack.length !== 1) throw new Error('rpn_bad_result');
+  const value = stack[0];
+  return { success: true, value, is24: is24(value) };
 }

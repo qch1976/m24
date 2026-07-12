@@ -122,6 +122,59 @@ export default class GameCore {
   getCurrentCardValues() {
     return this.currentCardValues.slice();
   }
+
+  // ============ INPUT-03 新增：答题判定入口 ============
+  // 契约（Architect 60 号）：
+  //   - 对用户 token 序列调用 Solver.evaluateExpression
+  //   - 除零 → { pass:false, reason:'division_by_zero' }
+  //   - 非法表达式 → { pass:false, reason:'invalid_expression' }（前端已拦截，兼容兵）
+  //   - 未用满 4 张 → { pass:false, reason:'not_all_cards_used' }
+  //   - 结果=24 → { pass:true, expression:'...' }
+  //   - 结果≠ 24 → { pass:false, reason:'not_24', actualValue:number, actualLabel:string }
+  // 现有函数字节不动
+  checkAnswer(tokens, cardValues) {
+    const values = cardValues || this.currentCardValues;
+    if (!tokens || tokens.length === 0) {
+      return { pass: false, reason: 'invalid_expression' };
+    }
+    const usedIndices = tokens
+      .filter((t) => t.type === 'number')
+      .map((t) => t.cardIndex);
+    if (usedIndices.length !== 4 || new Set(usedIndices).size !== 4) {
+      return { pass: false, reason: 'not_all_cards_used' };
+    }
+    const r = Solver.evaluateExpression(tokens, values);
+    if (!r.success) {
+      if (r.error === 'division_by_zero') {
+        return { pass: false, reason: 'division_by_zero' };
+      }
+      return { pass: false, reason: 'invalid_expression' };
+    }
+    if (r.is24) {
+      return { pass: true, expression: this.formatExpression(tokens, values) };
+    }
+    const frac = r.value;
+    const actualValue = frac.num / frac.den;
+    const actualLabel = frac.den === 1 ? String(frac.num) : `${frac.num}/${frac.den}`;
+    return { pass: false, reason: 'not_24', actualValue, actualLabel };
+  }
+
+  /**
+   * INPUT-03：把 token 序列反序列化为可读字符串（库用户与沿用 × ÷ 符号）
+   */
+  formatExpression(tokens, cardValues) {
+    const values = cardValues || this.currentCardValues;
+    const parts = [];
+    for (const t of tokens) {
+      if (t.type === 'number') parts.push(String(values[t.cardIndex]));
+      else if (t.type === 'operator') {
+        parts.push(t.value === '*' ? '×' : t.value === '/' ? '÷' : t.value);
+      }
+      else if (t.type === 'left_paren') parts.push('(');
+      else if (t.type === 'right_paren') parts.push(')');
+    }
+    return parts.join('');
+  }
 }
 
 GameCore.STATUS = STATUS;

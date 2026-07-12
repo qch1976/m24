@@ -10,6 +10,8 @@ import Background from './Background';
 import { drawCard, preloadAllCardImages, getPreloadStats } from './CardRenderer';
 import { drawDealButton } from './ButtonRenderer';
 import Deck from '../core/Deck';
+import AnswerArea from './AnswerArea';
+import Modal from './Modal';
 
 const PAGE = {
   INDEX: 'index',
@@ -18,19 +20,23 @@ const PAGE = {
   RESULT: 'result',
 };
 
-// 华为 P30 竖屏 411×891 DP 下的 2×2 布局锚点（依据 21-INPUT01.1-补丁设计.md §1.2）
-// 若实际 canvas 尺寸不同，采用等比缩放（见 _computeLayout）
+// 华为 P30 竖屏 411×891 DP 下的 2×2 布局锚点（INPUT-01.1）
+// INPUT-03：卡牌上移 100 DP（Architect 60 号 §2.2）为答题区腾空间；
+//   - top 行 y: 200 → 100
+//   - bottom 行 y: 400 → 300
+//   - dealBtn y 保留 60（在卡牌上方）
+//   - hint y: 620 → 480（接在 bottom 行 y=300+170=470 下方，位于答题区 top=500 上方）
 const DESIGN_W = 411;
 const DESIGN_H = 891;
 const LAYOUT_ANCHOR = {
   dealBtn: { x: 155, y: 60, w: 100, h: 50 },
   cards: [
-    { x: 55,  y: 200, w: 120, h: 170 }, // 左上
-    { x: 236, y: 200, w: 120, h: 170 }, // 右上
-    { x: 55,  y: 400, w: 120, h: 170 }, // 左下
-    { x: 236, y: 400, w: 120, h: 170 }, // 右下
+    { x: 55,  y: 100, w: 120, h: 170 }, // 左上
+    { x: 236, y: 100, w: 120, h: 170 }, // 右上
+    { x: 55,  y: 300, w: 120, h: 170 }, // 左下
+    { x: 236, y: 300, w: 120, h: 170 }, // 右下
   ],
-  hint: { x: 411 / 2, y: 620 },
+  hint: { x: 411 / 2, y: 480 },
 };
 
 const DEAL_STATE = {
@@ -57,6 +63,9 @@ export default class PageRenderer {
     // INPUT-01.1 新增：素材预加载状态
     this._assetsReady = false;
     this._assetsStat = null;
+    // INPUT-03 新增：答题区 + 弹层
+    this.answerArea = new AnswerArea();
+    this.modal = new Modal();
   }
 
   _ensureBackground() {
@@ -121,6 +130,34 @@ export default class PageRenderer {
     const touch = (event.changedTouches && event.changedTouches[0]) || (event.touches && event.touches[0]);
     if (!touch) return;
     const page = this.ui.currentPage;
+
+    // INPUT-03：在 TABLE 页优先处理弹层与答题区
+    if (page === PAGE.TABLE) {
+      if (this.modal.isVisible()) {
+        const modalHit = this.modal.hit(touch);
+        if (modalHit === 'close') {
+          this.modal.close();
+          return;
+        }
+        if (modalHit === 'next') {
+          this.modal.close();
+          this._dealAction();
+          return;
+        }
+        // 遮罩内其他区域无响应
+        return;
+      }
+      // 答题区命中优先
+      const hitBtn = this.answerArea.hitButton(touch);
+      if (hitBtn) {
+        const r = this.answerArea.handleButton(hitBtn);
+        if (r.action === 'submit') {
+          this._doSubmit();
+        }
+        return;
+      }
+    }
+
     const buttons = this.buttonsCache[page] || [];
     for (const btn of buttons) {
       if (hitTest(touch, btn)) {
@@ -252,6 +289,13 @@ export default class PageRenderer {
       : '素材：未开始';
     ctx.fillText(`已发牌次数：${this.dealCount}    ${assetsLine}`, layout.hint.x, layout.hint.y + 22);
 
+    // INPUT-03：答题区（发牌完成后才可用）
+    this.answerArea.setEnabled(this.dealState === DEAL_STATE.DONE);
+    this.answerArea.render(ctx, w, h);
+
+    // INPUT-03：结果弹层（需在最上层）
+    this.modal.render(ctx, w, h);
+
     this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn];
   }
 
@@ -337,6 +381,45 @@ export default class PageRenderer {
     this.dealCount += 1;
     this.dealState = DEAL_STATE.DEALING;
     this.dealStartAt = Date.now();
+
+    // INPUT-03：重置答题区与弹层，并同步牌面值
+    if (this.answerArea) {
+      this.answerArea.reset();
+      this.answerArea.setCardValues(this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)));
+      this.answerArea.setEnabled(false); // 等 DONE 后在 _renderTable 重新启用
+    }
+    if (this.modal) this.modal.close();
+  }
+
+  // INPUT-03：提交处理（需上下文重估 canSubmit、避免重入）
+  _doSubmit() {
+    if (!this.answerArea.canSubmit()) return;
+    const tokens = this.answerArea.getTokens();
+    const cardValues = this.answerArea.cardValues;
+    const gc = this.ui && this.ui.gameCore;
+    let result;
+    if (gc && typeof gc.checkAnswer === 'function') {
+      result = gc.checkAnswer(tokens, cardValues);
+    } else {
+      // 降级：若 GameCore 未提供，直接用 Solver
+      // 不应发生于本迭代，但保护不崩
+      result = { pass: false, reason: 'invalid_expression' };
+    }
+    if (result.pass) {
+      this.modal.showPass(this.answerArea.getFormulaText());
+    } else {
+      let msg;
+      if (result.reason === 'division_by_zero') {
+        msg = '算式包含除零，无法求值';
+      } else if (result.reason === 'not_24') {
+        msg = `结果 = ${result.actualLabel != null ? result.actualLabel : result.actualValue}`;
+      } else if (result.reason === 'not_all_cards_used') {
+        msg = '未用满 4 张牌';
+      } else {
+        msg = '算式非法';
+      }
+      this.modal.showFail(msg);
+    }
   }
 
   _onButtonTap(page, key) {
