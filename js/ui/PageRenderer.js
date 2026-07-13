@@ -7,7 +7,7 @@
 
 import { drawButton, hitTest, roundRect } from './Components';
 import Background from './Background';
-import { drawCard, preloadAllCardImages, getPreloadStats } from './CardRenderer';
+import { drawCard, preloadAllCardImages } from './CardRenderer';
 import { drawDealButton } from './ButtonRenderer';
 import Deck from '../core/Deck';
 import AnswerArea from './AnswerArea';
@@ -25,18 +25,20 @@ const PAGE = {
 //   - top 行 y: 200 → 100
 //   - bottom 行 y: 400 → 300
 //   - dealBtn y 保留 60（在卡牌上方）
-//   - hint y: 620 → 480（接在 bottom 行 y=300+170=470 下方，位于答题区 top=500 上方）
+// INPUT-03 bugfix（Architect 72 号 v2 §4/§6）：
+//   - 卡牌顶行 y: 100 → 118（下移 18 DP，避免与发牌按钮 y∈[60,110] x 重叠区 [155,175]/[236,255] 的 10 DP 遮盖）
+//   - 卡牌底行 y: 300 → 304（下移 4 DP，保证卡牌行间距 = 16 DP）
+//   - 删除 hint（“本次发牌…” 提示文字与素材加载状态渲染），并同步移除 LAYOUT_ANCHOR.hint
 const DESIGN_W = 411;
 const DESIGN_H = 891;
 const LAYOUT_ANCHOR = {
   dealBtn: { x: 155, y: 60, w: 100, h: 50 },
   cards: [
-    { x: 55,  y: 100, w: 120, h: 170 }, // 左上
-    { x: 236, y: 100, w: 120, h: 170 }, // 右上
-    { x: 55,  y: 300, w: 120, h: 170 }, // 左下
-    { x: 236, y: 300, w: 120, h: 170 }, // 右下
+    { x: 55,  y: 118, w: 120, h: 170 }, // 左上（INPUT-03 bugfix：下移 18 DP）
+    { x: 236, y: 118, w: 120, h: 170 }, // 右上（INPUT-03 bugfix：下移 18 DP）
+    { x: 55,  y: 304, w: 120, h: 170 }, // 左下（INPUT-03 bugfix：下移 4 DP）
+    { x: 236, y: 304, w: 120, h: 170 }, // 右下（INPUT-03 bugfix：下移 4 DP）
   ],
-  hint: { x: 411 / 2, y: 480 },
 };
 
 const DEAL_STATE = {
@@ -105,10 +107,6 @@ export default class PageRenderer {
       offsetY,
       dealBtn: scaleRect(LAYOUT_ANCHOR.dealBtn),
       cards: LAYOUT_ANCHOR.cards.map(scaleRect),
-      hint: {
-        x: offsetX + LAYOUT_ANCHOR.hint.x * scale,
-        y: offsetY + LAYOUT_ANCHOR.hint.y * scale,
-      },
     };
   }
 
@@ -265,29 +263,9 @@ export default class PageRenderer {
       }
     }
 
-    // 提示文字
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.font = '14px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const tip =
-      this.dealState === DEAL_STATE.IDLE
-        ? '点击"发牌"从 54 张牌中随机抽 4 张（含大小王）'
-        : this.dealState === DEAL_STATE.DEALING
-          ? '正在发牌…'
-          : '本次发牌完成，点击"发牌"重发';
-    ctx.fillText(tip, layout.hint.x, layout.hint.y);
-
-    // 素材预加载状态 + 发牌次数
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = '12px sans-serif';
-    const stats = getPreloadStats();
-    const assetsLine = stats.started
-      ? (this._assetsReady
-          ? `素材：${stats.loaded}/${stats.total} 已加载${stats.failed ? `（${stats.failed} 失败已降级）` : ''}`
-          : `素材加载中… ${stats.loaded + stats.failed}/${stats.total}`)
-      : '素材：未开始';
-    ctx.fillText(`已发牌次数：${this.dealCount}    ${assetsLine}`, layout.hint.x, layout.hint.y + 22);
+    // INPUT-03 bugfix（Architect 72 号 v2 §6）：
+    //   删除“本次发牌…”提示文字与素材加载状态渲染，为答题区（y=490 起）腾出空间；
+    //   同步移除对 layout.hint / getPreloadStats / this.dealCount(渲染) 的引用。
 
     // INPUT-03：答题区（发牌完成后才可用）
     this.answerArea.setEnabled(this.dealState === DEAL_STATE.DONE);

@@ -32,18 +32,20 @@ export const TokenType = {
 const OP_DISPLAY = { '+': '+', '-': '-', '*': '×', '/': '÷' };
 
 // 答题区在 411×891 DP 设计尺寸下的锚点（Architect §2.3）
+// INPUT-03 bugfix（Architect 72 号 v2 §4）：全部 y 坐标上移 10 DP，
+//   与卡牌底行新 y∈[304,474] 保持 16 DP 安全间距，且区底部 y+h = 870 ≤ 891。
 export const ANSWER_ANCHOR = {
-  // 卡牌区上移 100 DP 后，答题区顶部 y=500
-  area:      { x: 15,  y: 500, w: 381, h: 380 },
-  formula:   { x: 25,  y: 512, w: 361, h: 56  },
-  // 数字键区 y=580，高 60；4 键等宽
-  numRow:    { x: 25,  y: 580, w: 361, h: 60,  cols: 4, gap: 8 },
-  // 运算键区 y=650，6 键
-  opRow:     { x: 25,  y: 650, w: 361, h: 60,  cols: 6, gap: 6 },
-  // 控制键区 y=720，3 键
-  ctrlRow:   { x: 25,  y: 720, w: 361, h: 60,  cols: 3, gap: 10 },
+  // 卡牌区上移 100 DP 后，答题区顶部 y=490（bugfix 前为 500）
+  area:      { x: 15,  y: 490, w: 381, h: 380 },
+  formula:   { x: 25,  y: 502, w: 361, h: 56  },
+  // 数字键区 y=570，高 60；4 键等宽
+  numRow:    { x: 25,  y: 570, w: 361, h: 60,  cols: 4, gap: 8 },
+  // 运算键区 y=640，6 键
+  opRow:     { x: 25,  y: 640, w: 361, h: 60,  cols: 6, gap: 6 },
+  // 控制键区 y=710，3 键
+  ctrlRow:   { x: 25,  y: 710, w: 361, h: 60,  cols: 3, gap: 10 },
   // 说明文字
-  hintLine:  { x: 205, y: 800 },
+  hintLine:  { x: 205, y: 790 },
 };
 
 const OP_KEYS = ['+', '-', '*', '/', '(', ')'];
