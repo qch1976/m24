@@ -313,3 +313,125 @@ function _evaluateTokens(tokens, cardValues) {
   const value = stack[0];
   return { success: true, value, is24: is24(value) };
 }
+
+// ============ INPUT-04 新增：AST 携带 + 后序步骤 + 字典序优先解 ============
+// 依据：80-INPUT04-需求分析与设计.md §4 §5 §6
+//   - findSolutionsWithAST：新 API，返回 [{ expr, ast }, ...] 去重后
+//   - postOrderSteps：AST 后序遍历，产出 3 个中间步骤（op 用 ×/÷ 显示形式）
+//   - chooseCanonicalSolution：确定性选优，字典序最小（无随机、无 Math.random）
+//   - canonicalize：AST 规范化 key（与 toCanonicalKey 一致；此处提供 §10.2 约定的别名）
+//   - 严格不修改现有 findSolutions/isSolvable/hasSolution/normalize/evaluateExpression 等既有 API
+
+function _leafInternal(intValue) {
+  return { op: 'num', value: intToFraction(intValue), label: String(intValue) };
+}
+
+// 内部符号 → 显示符号（*/÷ 与 ×÷）
+function _displayOp(op) {
+  if (op === '*') return '×';
+  if (op === '/') return '÷';
+  return op;
+}
+
+// 内部符号 → 字符串表达式（保持带外层括号；叶子为整数字符串）
+function _renderNodeDisplay(node) {
+  if (node.op === 'num') return node.label;
+  return '(' + _renderNodeDisplay(node.args[0]) + _displayOp(node.op) + _renderNodeDisplay(node.args[1]) + ')';
+}
+
+function _evalNodeFrac(node) {
+  if (node.op === 'num') return node.value;
+  const a = _evalNodeFrac(node.args[0]);
+  const b = _evalNodeFrac(node.args[1]);
+  switch (node.op) {
+    case '+': return addFractions(a, b);
+    case '-': return subtractFractions(a, b);
+    case '*': return multiplyFractions(a, b);
+    case '/': {
+      const v = divideFractions(a, b);
+      if (v === null) throw new Error('postOrder: div_by_zero_in_valid_solution');
+      return v;
+    }
+    default: throw new Error('postOrder: unknown_op ' + node.op);
+  }
+}
+
+function _formatFrac(f) {
+  if (!f) return '?';
+  if (f.den === 1) return String(f.num);
+  return `${f.num}/${f.den}`;
+}
+
+export function postOrderSteps(ast) {
+  const steps = [];
+  function traverse(node) {
+    if (!node || node.op === 'num') return;
+    traverse(node.args[0]);
+    traverse(node.args[1]);
+    steps.push({
+      step: steps.length + 1,
+      lhs: _renderNodeDisplay(node.args[0]),
+      op: _displayOp(node.op),
+      rhs: _renderNodeDisplay(node.args[1]),
+      result: _formatFrac(_evalNodeFrac(node)),
+    });
+  }
+  traverse(ast);
+  return steps;
+}
+
+// 字典序最小策略（§5）
+//   - solutions: [{ expr, ast }, ...] 或 字符串数组
+//   - cards: 保留参数（未来扩展），当前不使用
+// 返回：单个 Solution 对象（同类型输入元素）
+export function chooseCanonicalSolution(solutions, _cards) {
+  if (!solutions || solutions.length === 0) return null;
+  const isObj = typeof solutions[0] === 'object' && solutions[0] !== null;
+  let best = solutions[0];
+  let bestExpr = isObj ? best.expr : best;
+  for (let i = 1; i < solutions.length; i++) {
+    const cur = solutions[i];
+    const curExpr = isObj ? cur.expr : cur;
+    if (curExpr < bestExpr) {
+      best = cur;
+      bestExpr = curExpr;
+    }
+  }
+  return best;
+}
+
+export function canonicalize(ast) {
+  return toCanonicalKey(ast);
+}
+
+// findSolutionsWithAST：新 API，独立函数 + 挂到 Solver 上
+function _findSolutionsWithASTImpl(numbers, target = 24) {
+  const items = numbers.map((n) => ({
+    value: intToFraction(n),
+    tree: _leafInternal(n),
+    expr: String(n),
+  }));
+  const raw = [];
+  dfsAll(items, raw, false, target);
+  const seen = new Set();
+  const uniq = [];
+  for (const r of raw) {
+    const key = toCanonicalKey(r.tree);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniq.push({ expr: r.expr, ast: r.tree, key });
+  }
+  // 确定性排序：按 expr 字典序（无随机、无 Object.keys 依赖插入顺序）
+  uniq.sort((a, b) => (a.expr < b.expr ? -1 : a.expr > b.expr ? 1 : 0));
+  return uniq;
+}
+
+export function findSolutionsWithAST(numbers, target = 24) {
+  return _findSolutionsWithASTImpl(numbers, target);
+}
+
+// 把 INPUT-04 新增 API 挂到 Solver 类上（不修改类体，字节仍在原位）
+Solver.findSolutionsWithAST = _findSolutionsWithASTImpl;
+Solver.postOrderSteps = postOrderSteps;
+Solver.chooseCanonicalSolution = chooseCanonicalSolution;
+Solver.canonicalize = canonicalize;

@@ -181,3 +181,85 @@ export default class GameCore {
 }
 
 GameCore.STATUS = STATUS;
+
+
+// ============ INPUT-04 新增：Hint 步骤缓存 + 全解字符串缓存 ============
+// 依据：80-INPUT04-需求分析与设计.md §4.5 §10.2
+//   - _cachedHintSteps: [Step, Step, Step] | null
+//   - _cachedAllSolutions: string[] | null
+//   - _computeHintCache()：内部，DEAL_DONE 后立即调用（由 PageRenderer 触发或此文件在 recordSolutions 里调）
+//   - getHintStep(index): 1|2|3 → step 对象；发牌前返回 null
+//   - getAllSolutions(): 去重后的全解字符串数组（副本）
+//   - 换牌时清空缓存
+// 严格不修改现有 API 字节：recordSolutions/getSolutions/hasSolution/checkAnswer/formatExpression/... 保持原样
+
+import { findSolutionsWithAST, chooseCanonicalSolution, postOrderSteps } from './Solver';
+
+// 内部：从 currentCardValues 计算缓存
+function _computeHintCache(gc) {
+  const values = gc.currentCardValues || [];
+  if (!values || values.length !== 4) {
+    gc._cachedHintSteps = null;
+    gc._cachedAllSolutions = null;
+    return;
+  }
+  const sols = findSolutionsWithAST(values); // 已按 expr 字典序排序
+  if (!sols || sols.length === 0) {
+    gc._cachedHintSteps = null;
+    gc._cachedAllSolutions = [];
+    return;
+  }
+  const chosen = chooseCanonicalSolution(sols, values); // 字典序最小
+  const steps = postOrderSteps(chosen.ast);            // 3 个 Step
+  gc._cachedHintSteps = steps;
+  gc._cachedAllSolutions = sols.map((s) => s.expr);
+}
+
+// 挂到 prototype，不修改类体原有字节
+GameCore.prototype._computeHintCache = function () {
+  _computeHintCache(this);
+};
+
+// getHintStep(index): index=1|2|3；未发牌或无解返回 null
+GameCore.prototype.getHintStep = function (index) {
+  if (!this._cachedHintSteps) {
+    // 若缓存未建（例如老流程尚未调用 _computeHintCache），惰性计算一次
+    _computeHintCache(this);
+  }
+  if (!this._cachedHintSteps) return null;
+  if (index < 1 || index > 3) return null;
+  return this._cachedHintSteps[index - 1] || null;
+};
+
+// getAllSolutions(): 返回去重后的全部算式字符串副本
+GameCore.prototype.getAllSolutions = function () {
+  if (!this._cachedAllSolutions) {
+    _computeHintCache(this);
+  }
+  if (!this._cachedAllSolutions) return [];
+  return this._cachedAllSolutions.slice();
+};
+
+// —— 换牌 / 重开时清空缓存 ——
+// 用 monkey-patch 包装既有方法（不修改函数字节，只在调用后追加清缓存 / 立即重算）
+const _origRecordSolutions = GameCore.prototype.recordSolutions;
+GameCore.prototype.recordSolutions = function (cards) {
+  const r = _origRecordSolutions.call(this, cards);
+  // 换牌后 DEAL_DONE 前置：立即建缓存
+  _computeHintCache(this);
+  return r;
+};
+
+const _origResetGame = GameCore.prototype.resetGame;
+GameCore.prototype.resetGame = function () {
+  _origResetGame.call(this);
+  this._cachedHintSteps = null;
+  this._cachedAllSolutions = null;
+};
+
+const _origNextRound = GameCore.prototype.nextRound;
+GameCore.prototype.nextRound = function () {
+  _origNextRound.call(this);
+  this._cachedHintSteps = null;
+  this._cachedAllSolutions = null;
+};

@@ -12,6 +12,8 @@ import { drawDealButton } from './ButtonRenderer';
 import Deck from '../core/Deck';
 import AnswerArea from './AnswerArea';
 import Modal from './Modal';
+import HintModal from './HintModal';
+import AnswerModal from './AnswerModal';
 
 const PAGE = {
   INDEX: 'index',
@@ -39,6 +41,12 @@ const LAYOUT_ANCHOR = {
     { x: 55,  y: 304, w: 120, h: 170 }, // 左下（INPUT-03 bugfix：下移 4 DP）
     { x: 236, y: 304, w: 120, h: 170 }, // 右下（INPUT-03 bugfix：下移 4 DP）
   ],
+  // INPUT-04：新增两按钮锚点，与发牌按钮同水平层 y=[60,110]
+  //   提示按钮 x=[35,135] w=100 h=50；答案按钮 x=[275,375] w=100 h=50
+  //   坐标依据：80-INPUT04-需求分析与设计.md §2.2
+  //   既有 dealBtn / cards 字段字节零变化（仅在下方追加）
+  hintBtn: { x: 35, y: 60, w: 100, h: 50 },
+  answerBtn: { x: 275, y: 60, w: 100, h: 50 },
 };
 
 const DEAL_STATE = {
@@ -50,6 +58,13 @@ const DEAL_STATE = {
 // 翻转动画时长（毫秒）；INPUT-01 保持一致
 const CARD_FLIP_MS = 400;
 const CARD_DELAY_MS = 150;
+
+// INPUT-04：提示/答案按钮视觉常量（沿用发牌按钮蓝色主色 rgba(56,132,255,*)）
+const AUX_BTN_BG = 'rgba(56,132,255,1)';
+const AUX_BTN_BG_DISABLED = 'rgba(56,132,255,0.35)';
+const AUX_BTN_FG = '#FFFFFF';
+const AUX_BTN_FG_DISABLED = 'rgba(255,255,255,0.6)';
+const AUX_BTN_RADIUS = 12;
 
 export default class PageRenderer {
   constructor(ui) {
@@ -68,6 +83,9 @@ export default class PageRenderer {
     // INPUT-03 新增：答题区 + 弹层
     this.answerArea = new AnswerArea();
     this.modal = new Modal();
+    // INPUT-04 新增：提示 + 答案弹窗
+    this.hintModal = new HintModal();
+    this.answerModal = new AnswerModal();
   }
 
   _ensureBackground() {
@@ -107,6 +125,8 @@ export default class PageRenderer {
       offsetY,
       dealBtn: scaleRect(LAYOUT_ANCHOR.dealBtn),
       cards: LAYOUT_ANCHOR.cards.map(scaleRect),
+      hintBtn: scaleRect(LAYOUT_ANCHOR.hintBtn),
+      answerBtn: scaleRect(LAYOUT_ANCHOR.answerBtn),
     };
   }
 
@@ -124,6 +144,23 @@ export default class PageRenderer {
   }
 
   handleEvent(type, event) {
+    // INPUT-04：AnswerModal 支持滚动，需接管 touchstart/move/end 全套（拦截其它 handler）
+    const _touchAll = event && ((event.changedTouches && event.changedTouches[0]) ||
+                                (event.touches && event.touches[0]));
+    const _pageEarly = this.ui.currentPage;
+    if (_pageEarly === PAGE.TABLE && this.answerModal && this.answerModal.isVisible()) {
+      if (!_touchAll) return;
+      if (type === 'touchstart') { this.answerModal.onTouchStart(_touchAll); return; }
+      if (type === 'touchmove')  { this.answerModal.onTouchMove(_touchAll); return; }
+      if (type === 'touchend') {
+        this.answerModal.onTouchEnd(_touchAll);
+        const rHit = this.answerModal.hit(_touchAll);
+        if (rHit === 'close') { this.answerModal.close(); return; }
+        return; // 遮罩/列表拖拽结束：consumed
+      }
+      return;
+    }
+
     if (type !== 'touchend') return;
     const touch = (event.changedTouches && event.changedTouches[0]) || (event.touches && event.touches[0]);
     if (!touch) return;
@@ -131,6 +168,14 @@ export default class PageRenderer {
 
     // INPUT-03：在 TABLE 页优先处理弹层与答题区
     if (page === PAGE.TABLE) {
+      // INPUT-04：HintModal 优先（比结果弹层更高优先级；同一时刻只应有一个可见）
+      if (this.hintModal && this.hintModal.isVisible()) {
+        const hintHit = this.hintModal.hit(touch);
+        if (hintHit === 'close') { this.hintModal.close(); return; }
+        if (hintHit === 'again') { this.hintModal.advanceStep(); return; }
+        // 'consumed'（含 step=2 时点再提示的置灰态 / 遮罩其它区域）：直接 return，不弹任何文案
+        return;
+      }
       if (this.modal.isVisible()) {
         const modalHit = this.modal.hit(touch);
         if (modalHit === 'close') {
@@ -227,6 +272,29 @@ export default class PageRenderer {
     };
     drawDealButton(ctx, dealBtn);
 
+    // INPUT-04：提示 / 答案按钮
+    const auxEnabled = this.dealState === DEAL_STATE.DONE && this.dealtCards && this.dealtCards.length === 4;
+    const hintBtn = {
+      key: 'hint',
+      text: '提示',
+      x: layout.hintBtn.x,
+      y: layout.hintBtn.y,
+      w: layout.hintBtn.w,
+      h: layout.hintBtn.h,
+      disabled: !auxEnabled,
+    };
+    const answerBtn = {
+      key: 'answer',
+      text: '答案',
+      x: layout.answerBtn.x,
+      y: layout.answerBtn.y,
+      w: layout.answerBtn.w,
+      h: layout.answerBtn.h,
+      disabled: !auxEnabled,
+    };
+    this._drawAuxButton(ctx, hintBtn, layout.scale);
+    this._drawAuxButton(ctx, answerBtn, layout.scale);
+
     // 4 张牌（2×2 布局；发牌顺序：左上→右上→左下→右下 = 数组索引 0/1/2/3）
     const now = Date.now();
     for (let i = 0; i < 4; i++) {
@@ -274,7 +342,25 @@ export default class PageRenderer {
     // INPUT-03：结果弹层（需在最上层）
     this.modal.render(ctx, w, h);
 
-    this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn];
+    // INPUT-04：提示/答案弹窗（在结果弹层之上；同一时刻只应有一个可见）
+    this.hintModal.render(ctx, w, h);
+    this.answerModal.render(ctx, w, h);
+
+    this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn, hintBtn, answerBtn];
+  }
+
+  // INPUT-04：绘制蓝色主色辅助按钮（提示 / 答案），沿用发牌按钮蓝色系
+  _drawAuxButton(ctx, btn, scale) {
+    ctx.save();
+    ctx.fillStyle = btn.disabled ? AUX_BTN_BG_DISABLED : AUX_BTN_BG;
+    roundRect(ctx, btn.x, btn.y, btn.w, btn.h, AUX_BTN_RADIUS * (scale || 1));
+    ctx.fill();
+    ctx.fillStyle = btn.disabled ? AUX_BTN_FG_DISABLED : AUX_BTN_FG;
+    ctx.font = `bold ${Math.floor(18 * (scale || 1))}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(btn.text, btn.x + btn.w / 2, btn.y + btn.h / 2);
+    ctx.restore();
   }
 
   // ---------------- GAME / RESULT （骨架保留） ----------------
@@ -367,6 +453,9 @@ export default class PageRenderer {
       this.answerArea.setEnabled(false); // 等 DONE 后在 _renderTable 重新启用
     }
     if (this.modal) this.modal.close();
+    // INPUT-04：换牌时强制关闭提示 / 答案弹窗（提示进度自然清零）
+    if (this.hintModal) this.hintModal.close();
+    if (this.answerModal) this.answerModal.close();
   }
 
   // INPUT-03（Architect 60 号修订版）：提交处理
@@ -399,6 +488,27 @@ export default class PageRenderer {
     this.modal.showFail(msg);
   }
 
+  // INPUT-04：打开 HintModal
+  //   - 从 gameCore 获取 3 个 hint step；无解则不打开（严格：R-01 也已置灰按钮）
+  _openHintModal() {
+    const gc = this.ui && this.ui.gameCore;
+    if (!gc || typeof gc.getHintStep !== 'function') return;
+    const s1 = gc.getHintStep(1);
+    const s2 = gc.getHintStep(2);
+    const s3 = gc.getHintStep(3);
+    if (!s1 || !s2) return;
+    this.hintModal.open([s1, s2, s3]);
+  }
+
+  // INPUT-04：打开 AnswerModal
+  _openAnswerModal() {
+    const gc = this.ui && this.ui.gameCore;
+    if (!gc || typeof gc.getAllSolutions !== 'function') return;
+    const solutions = gc.getAllSolutions();
+    // 显示格式：算式 + " = 24"；AnswerModal 内部会拼 " = 24" 后缀
+    this.answerModal.open(solutions);
+  }
+
   _onButtonTap(page, key) {
     if (page === PAGE.INDEX) {
       if (key === 'table') this.ui.switchTo(PAGE.TABLE);
@@ -413,6 +523,8 @@ export default class PageRenderer {
     } else if (page === PAGE.TABLE) {
       if (key === 'back') this.ui.switchTo(PAGE.INDEX);
       else if (key === 'deal') this._dealAction();
+      else if (key === 'hint') this._openHintModal();
+      else if (key === 'answer') this._openAnswerModal();
     } else if (page === PAGE.GAME) {
       if (key === 'back') this.ui.switchTo(PAGE.INDEX);
     } else if (page === PAGE.RESULT) {
