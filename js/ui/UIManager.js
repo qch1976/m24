@@ -24,40 +24,65 @@ export default class UIManager {
     this.pageParams = {};
     this.renderer = new PageRenderer(this);
 
+    // Bug6 v2 (X+Y 合流)：追踪真实 touch 事件时间戳，供后面桥接去重使用
+    this._lastRealTouchTs = 0;
+
     // 触摸事件分发
     if (wx.onTouchStart) {
-      wx.onTouchStart((e) => this.renderer.handleEvent('touchstart', e));
-      wx.onTouchMove((e) => this.renderer.handleEvent('touchmove', e));
-      wx.onTouchEnd((e) => this.renderer.handleEvent('touchend', e));
+      wx.onTouchStart((e) => {
+        this._lastRealTouchTs = Date.now();
+        this.renderer.handleEvent('touchstart', e);
+      });
+      wx.onTouchMove((e) => {
+        this._lastRealTouchTs = Date.now();
+        this.renderer.handleEvent('touchmove', e);
+      });
+      wx.onTouchEnd((e) => {
+        this._lastRealTouchTs = Date.now();
+        this.renderer.handleEvent('touchend', e);
+      });
     }
 
-    // INPUT-04 bugfix Bug3：canvas mouse → touch 桥接（模拟器 PC 鼠标兼容）
-    // 依据：87-INPUT04-bugfix-分析与修复方案.md §3.2
-    // 真机：canvas.addEventListener 不会触发 mouse 事件，上面的 wx.onTouch* 主通路完全不变
+    // INPUT-04 bugfix v2 Bug3 + Bug6：canvas mouse → touch 桥接
+    // 依据：92-INPUT04-bugfix-v2-分析与修复方案.md §4.5 选型 X + Y 合流
+    // X：仅在 wx.getSystemInfoSync().platform === 'devtools' 时启用（真机完全关闭）
+    // Y：即使开启，桥接分发前检查 40ms 内是否已有真实 touch，若有则丢弃
+    let _enableBridge = false;
+    try {
+      const _sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : null;
+      if (_sys && _sys.platform === 'devtools') _enableBridge = true;
+      if (typeof window !== 'undefined' && window.MOUSE_ONLY === true) _enableBridge = true;
+    } catch (_) { _enableBridge = false; }
+
     const _canvasEl = this.canvas;
-    if (_canvasEl && typeof _canvasEl.addEventListener === 'function') {
+    if (_enableBridge && _canvasEl && typeof _canvasEl.addEventListener === 'function') {
+      const DEDUP_MS = 40; // Y: 2 帧 @30fps 内已有 real touch 则丢弃
       let _mouseDown = false;
-      const _toTouchEvent = (mouseEv) => ({
-        touches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
-        changedTouches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
-        preventDefault: () => mouseEv.preventDefault && mouseEv.preventDefault(),
-      });
+      const _forwardIfNoRealTouch = (mouseEv, type) => {
+        if (Date.now() - this._lastRealTouchTs < DEDUP_MS) return; // 丢弃
+        this.renderer.handleEvent(type, {
+          touches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
+          changedTouches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
+          preventDefault: () => mouseEv.preventDefault && mouseEv.preventDefault(),
+          _synthetic: true, // 便于调试
+        });
+      };
       try {
         _canvasEl.addEventListener('mousedown', (e) => {
           _mouseDown = true;
-          this.renderer.handleEvent('touchstart', _toTouchEvent(e));
+          _forwardIfNoRealTouch(e, 'touchstart');
         });
         _canvasEl.addEventListener('mousemove', (e) => {
-          if (!_mouseDown) return; // 只在按住时映射（Touch 语义一致）
-          this.renderer.handleEvent('touchmove', _toTouchEvent(e));
+          if (!_mouseDown) return;
+          _forwardIfNoRealTouch(e, 'touchmove');
         });
         const _up = (e) => {
           if (!_mouseDown) return;
           _mouseDown = false;
-          this.renderer.handleEvent('touchend', _toTouchEvent(e));
+          _forwardIfNoRealTouch(e, 'touchend');
         };
         _canvasEl.addEventListener('mouseup', _up);
-        // 鼠标拖出 canvas 才释放时的兑底
+        // 鼠标拖出 canvas 才释放时的兜底
         if (typeof window !== 'undefined' && window.addEventListener) {
           window.addEventListener('mouseup', _up);
         }

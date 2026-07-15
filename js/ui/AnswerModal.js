@@ -23,8 +23,8 @@ const BTN_PRIMARY_FG = '#FFFFFF';
 const BTN_RADIUS = 10;
 
 // 设计尺寸（§7.3）——Bug4 A+ 方案：弹窗收窄到 341 DP（左右各留 35 DP）
-const PANEL = { x: 35, y: 140, w: 341, h: 611 };
-const LIST_CONTAINER = { x: 45, y: 240, w: 321, h: 440 };
+const PANEL = { x: 53, y: 140, w: 305, h: 611 };
+const LIST_CONTAINER = { x: 61, y: 240, w: 289, h: 440 };
 const CLOSE_BTN = { x: 130, y: 691, w: 151, h: 50 };
 
 const ITEM_HEIGHT = 44;      // 每项高度 DP
@@ -32,7 +32,7 @@ const ITEM_GAP = 8;          // 项间距 DP
 const ITEM_STRIDE = ITEM_HEIGHT + ITEM_GAP; // 52 DP
 const LIST_PAD_TOP = 12;
 const LIST_PAD_LR = 16;
-const ITEM_FONT_SIZE = 16;   // Bug4 A+ 方案：14 → 16 px
+const ITEM_FONT_SIZE = 17;   // Bug4-v2 方案（选型 C 混合）：16 → 17 px
 
 export default class AnswerModal {
   constructor() {

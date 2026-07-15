@@ -415,13 +415,29 @@ function _findSolutionsWithASTImpl(numbers, target = 24) {
   }));
   const raw = [];
   dfsAll(items, raw, false, target);
-  const seen = new Set();
+  const seen = new Map(); // key -> uniq[] index
   const uniq = [];
+  const _hasDivOne = (expr) => expr.indexOf('/1') !== -1;
   for (const r of raw) {
     // Bug1 修复：使用 v2 canonicalize（+/- 符号项归一 + 减号 push down）
+    // Bug5.1: toCanonicalKeyV2 内部会先运行 _normalizeOneMulDiv 将 a÷1 归一为 a×1
     const key = toCanonicalKeyV2(r.tree);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(key)) {
+      // Bug5.1: 同 key 碰撞时，优先保留 expr 中不含 "/1" 的变体（UI 仅显示 ×1）
+      const prevIdx = seen.get(key);
+      const prev = uniq[prevIdx];
+      const prevBad = _hasDivOne(prev.expr);
+      const curBad = _hasDivOne(r.expr);
+      if (prevBad && !curBad) {
+        // 当前候选更差，替换为新候选
+        uniq[prevIdx] = { expr: r.expr, ast: r.tree, key };
+      } else if (prevBad === curBad && r.expr < prev.expr) {
+        // 同质量，取字典序更小的
+        uniq[prevIdx] = { expr: r.expr, ast: r.tree, key };
+      }
+      continue;
+    }
+    seen.set(key, uniq.length);
     uniq.push({ expr: r.expr, ast: r.tree, key });
   }
   // 确定性排序：按 expr 字典序（无随机、无 Object.keys 依赖插入顺序）
@@ -449,7 +465,7 @@ Solver.canonicalize = canonicalize;
 function _flattenSignedAdditiveTerms(node, entrySign) {
   const flip = (s) => (s === '+' ? '-' : '+');
   if (node.op === 'num') {
-    return [{ sign: entrySign, key: toCanonicalKeyV2(node) }];
+    return [{ sign: entrySign, key: _toCanonicalKeyV2Raw(node) }];
   }
   if (node.op === '+') {
     return [
@@ -464,22 +480,53 @@ function _flattenSignedAdditiveTerms(node, entrySign) {
     ];
   }
   // 非 +/- 子树整体作为一个 term（× / ÷ 子树 / 叶子已在上面）
-  return [{ sign: entrySign, key: toCanonicalKeyV2(node) }];
+  return [{ sign: entrySign, key: _toCanonicalKeyV2Raw(node) }];
 }
 
 export function toCanonicalKeyV2(node) {
+  // Bug5.1 (v2): 在生成 key 前先将 a÷1 / 1×a 深度改写为 a×1，使 a×1 ≡ a÷1（仅当另一侧为整数 1 时）
+  // 硬约束：不代数化简（a×1 仍为 a×1，不完全变为 a）；1÷a 不改写（值为 1/a ≠ a）
+  return _toCanonicalKeyV2Raw(_normalizeOneMulDiv(node));
+}
+
+// Bug5.1: 前置改写 pass（仅与整数 1 相乘或相除时触发）
+function _normalizeOneMulDiv(node) {
+  if (!node || node.op === 'num') return node;
+  // 深度优先归一
+  const l = _normalizeOneMulDiv(node.args[0]);
+  const r = _normalizeOneMulDiv(node.args[1]);
+  const isOne = (x) => x && x.op === 'num' && x.value && x.value.num === 1 && x.value.den === 1;
+  if (node.op === '*' || node.op === '/') {
+    if (isOne(r)) {
+      // a×1 和 a÷1 都归一为 a×1
+      return { op: '*', args: [l, r] };
+    }
+    if (isOne(l)) {
+      if (node.op === '*') {
+        // 1×a → a×1（交换）
+        return { op: '*', args: [r, l] };
+      }
+      // 1÷a 不改写（值为 1/a）
+      return { op: node.op, args: [l, r] };
+    }
+  }
+  // 其他情形：直接重建子树（子树已深度归一）
+  return { op: node.op, args: [l, r] };
+}
+
+function _toCanonicalKeyV2Raw(node) {
   if (node.op === 'num') {
     return `n${node.value.num}/${node.value.den}`;
   }
   // × ：沿用 v1 排序语义（交换律）
   if (node.op === '*') {
-    const flat = flattenSameOp(node, '*').map(toCanonicalKeyV2);
+    const flat = flattenSameOp(node, '*').map(_toCanonicalKeyV2Raw);
     flat.sort();
     return `(*|${flat.join('|')})`;
   }
   // ÷ ：保序不变（硬约束：不做 a÷(b×c) ≡ (a÷b)÷c）
   if (node.op === '/') {
-    return `(/|${toCanonicalKeyV2(node.args[0])}|${toCanonicalKeyV2(node.args[1])})`;
+    return `(/|${_toCanonicalKeyV2Raw(node.args[0])}|${_toCanonicalKeyV2Raw(node.args[1])})`;
   }
   // +/-：符号项化 + push down 后按 (sign, key) 排序
   if (node.op === '+' || node.op === '-') {
