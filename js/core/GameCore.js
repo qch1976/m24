@@ -212,7 +212,10 @@ function _computeHintCache(gc) {
   const chosen = chooseCanonicalSolution(sols, values); // 字典序最小
   const steps = postOrderSteps(chosen.ast);            // 3 个 Step
   gc._cachedHintSteps = steps;
-  gc._cachedAllSolutions = sols.map((s) => s.expr);
+  // Bug2 修复：显示层使用 formatExprPretty 去多余括号；再按 pretty 字典序重新排序（保留 UI 列表确定性）
+  const prettyList = sols.map((s) => Solver.formatExprPretty(s.ast));
+  prettyList.sort();
+  gc._cachedAllSolutions = prettyList;
 }
 
 // 挂到 prototype，不修改类体原有字节

@@ -30,6 +30,41 @@ export default class UIManager {
       wx.onTouchMove((e) => this.renderer.handleEvent('touchmove', e));
       wx.onTouchEnd((e) => this.renderer.handleEvent('touchend', e));
     }
+
+    // INPUT-04 bugfix Bug3：canvas mouse → touch 桥接（模拟器 PC 鼠标兼容）
+    // 依据：87-INPUT04-bugfix-分析与修复方案.md §3.2
+    // 真机：canvas.addEventListener 不会触发 mouse 事件，上面的 wx.onTouch* 主通路完全不变
+    const _canvasEl = this.canvas;
+    if (_canvasEl && typeof _canvasEl.addEventListener === 'function') {
+      let _mouseDown = false;
+      const _toTouchEvent = (mouseEv) => ({
+        touches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
+        changedTouches: [{ clientX: mouseEv.clientX, clientY: mouseEv.clientY }],
+        preventDefault: () => mouseEv.preventDefault && mouseEv.preventDefault(),
+      });
+      try {
+        _canvasEl.addEventListener('mousedown', (e) => {
+          _mouseDown = true;
+          this.renderer.handleEvent('touchstart', _toTouchEvent(e));
+        });
+        _canvasEl.addEventListener('mousemove', (e) => {
+          if (!_mouseDown) return; // 只在按住时映射（Touch 语义一致）
+          this.renderer.handleEvent('touchmove', _toTouchEvent(e));
+        });
+        const _up = (e) => {
+          if (!_mouseDown) return;
+          _mouseDown = false;
+          this.renderer.handleEvent('touchend', _toTouchEvent(e));
+        };
+        _canvasEl.addEventListener('mouseup', _up);
+        // 鼠标拖出 canvas 才释放时的兑底
+        if (typeof window !== 'undefined' && window.addEventListener) {
+          window.addEventListener('mouseup', _up);
+        }
+      } catch (err) {
+        // 真机 / 不支持 addEventListener 时无害忽略
+      }
+    }
   }
 
   switchTo(page, params = {}) {

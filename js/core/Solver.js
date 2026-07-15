@@ -368,11 +368,12 @@ export function postOrderSteps(ast) {
     if (!node || node.op === 'num') return;
     traverse(node.args[0]);
     traverse(node.args[1]);
+    // Bug2 修复：lhs/rhs 使用 pretty body（父 op = 当前节点 op；lhs 是左子，rhs 是右子）
     steps.push({
       step: steps.length + 1,
-      lhs: _renderNodeDisplay(node.args[0]),
+      lhs: _prettyBody(node.args[0], node.op, false),
       op: _displayOp(node.op),
-      rhs: _renderNodeDisplay(node.args[1]),
+      rhs: _prettyBody(node.args[1], node.op, true),
       result: _formatFrac(_evalNodeFrac(node)),
     });
   }
@@ -401,7 +402,8 @@ export function chooseCanonicalSolution(solutions, _cards) {
 }
 
 export function canonicalize(ast) {
-  return toCanonicalKey(ast);
+  // Bug1 修复：使用 v2 canonicalize（+/- 符号项归一 + 减号 push down）
+  return toCanonicalKeyV2(ast);
 }
 
 // findSolutionsWithAST：新 API，独立函数 + 挂到 Solver 上
@@ -416,7 +418,8 @@ function _findSolutionsWithASTImpl(numbers, target = 24) {
   const seen = new Set();
   const uniq = [];
   for (const r of raw) {
-    const key = toCanonicalKey(r.tree);
+    // Bug1 修复：使用 v2 canonicalize（+/- 符号项归一 + 减号 push down）
+    const key = toCanonicalKeyV2(r.tree);
     if (seen.has(key)) continue;
     seen.add(key);
     uniq.push({ expr: r.expr, ast: r.tree, key });
@@ -435,3 +438,94 @@ Solver.findSolutionsWithAST = _findSolutionsWithASTImpl;
 Solver.postOrderSteps = postOrderSteps;
 Solver.chooseCanonicalSolution = chooseCanonicalSolution;
 Solver.canonicalize = canonicalize;
+
+// ============ INPUT-04 bugfix：Bug1 + Bug2 新增函数（追加末尾） ============
+// 依据：87-INPUT04-bugfix-分析与修复方案.md §1.4 §2.2
+// - toCanonicalKeyV2 / _flattenSignedAdditiveTerms：加减链符号项归一 + 减号 push down
+//   规则 G1~G5，硬约束：不代数化简；乘除层保持 v1 语义（* 排序、/ 保序）
+// - formatExprPretty / _prettyBody：显示层去多余括号（优先级 + 结合性），
+//   仅供 GameCore 显示出口调用；Solver 内部（combineOnce/expr 排序）不受影响
+
+function _flattenSignedAdditiveTerms(node, entrySign) {
+  const flip = (s) => (s === '+' ? '-' : '+');
+  if (node.op === 'num') {
+    return [{ sign: entrySign, key: toCanonicalKeyV2(node) }];
+  }
+  if (node.op === '+') {
+    return [
+      ..._flattenSignedAdditiveTerms(node.args[0], entrySign),
+      ..._flattenSignedAdditiveTerms(node.args[1], entrySign),
+    ];
+  }
+  if (node.op === '-') {
+    return [
+      ..._flattenSignedAdditiveTerms(node.args[0], entrySign),
+      ..._flattenSignedAdditiveTerms(node.args[1], flip(entrySign)),
+    ];
+  }
+  // 非 +/- 子树整体作为一个 term（× / ÷ 子树 / 叶子已在上面）
+  return [{ sign: entrySign, key: toCanonicalKeyV2(node) }];
+}
+
+export function toCanonicalKeyV2(node) {
+  if (node.op === 'num') {
+    return `n${node.value.num}/${node.value.den}`;
+  }
+  // × ：沿用 v1 排序语义（交换律）
+  if (node.op === '*') {
+    const flat = flattenSameOp(node, '*').map(toCanonicalKeyV2);
+    flat.sort();
+    return `(*|${flat.join('|')})`;
+  }
+  // ÷ ：保序不变（硬约束：不做 a÷(b×c) ≡ (a÷b)÷c）
+  if (node.op === '/') {
+    return `(/|${toCanonicalKeyV2(node.args[0])}|${toCanonicalKeyV2(node.args[1])})`;
+  }
+  // +/-：符号项化 + push down 后按 (sign, key) 排序
+  if (node.op === '+' || node.op === '-') {
+    const terms = _flattenSignedAdditiveTerms(node, '+');
+    terms.sort((a, b) => {
+      if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+      return a.sign < b.sign ? -1 : (a.sign > b.sign ? 1 : 0);
+    });
+    return `(+chain|${terms.map((t) => t.sign + t.key).join('|')})`;
+  }
+  throw new Error('toCanonicalKeyV2: unknown op ' + node.op);
+}
+
+Solver.toCanonicalKeyV2 = toCanonicalKeyV2;
+
+// -------- Bug2: formatExprPretty --------
+
+const _PRETTY_PRECEDENCE = { '+': 1, '-': 1, '*': 2, '/': 2, '×': 2, '÷': 2 };
+
+function _prettyBody(node, parentOp, isRightChild) {
+  if (!node) return '';
+  if (node.op === 'num') return node.label;
+
+  const leftStr = _prettyBody(node.args[0], node.op, false);
+  const rightStr = _prettyBody(node.args[1], node.op, true);
+  const inner = leftStr + _displayOp(node.op) + rightStr;
+
+  if (parentOp === null || parentOp === undefined) return inner; // R1：最外层
+
+  const pP = _PRETTY_PRECEDENCE[parentOp];
+  const pC = _PRETTY_PRECEDENCE[node.op];
+
+  if (pC > pP) return inner;              // R3-a：子优先级高，无括号
+  if (pC < pP) return '(' + inner + ')';  // R3-b：子优先级低，必括号
+
+  // 同优先级
+  if (!isRightChild) return inner;                        // R3-c：左子（左结合）
+  if (parentOp === '+' || parentOp === '*') return inner; // R3-d1：右子 & 父 + 或 ×（结合律）
+  return '(' + inner + ')';                               // R3-d2：右子 & 父 - 或 ÷
+}
+
+export function formatExprPretty(ast) {
+  if (!ast || ast.op === undefined) return String(ast || '');
+  if (ast.op === 'num') return ast.label;
+  return _prettyBody(ast, null, false);
+}
+
+Solver.formatExprPretty = formatExprPretty;
+Solver._prettyBody = _prettyBody; // 供测试与内部 postOrderSteps 使用
