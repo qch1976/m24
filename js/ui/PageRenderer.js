@@ -112,7 +112,7 @@ export default class PageRenderer {
     const sy = this.ui.height / DESIGN_H;
     const scale = Math.min(sx, sy);
     const offsetX = (this.ui.width - DESIGN_W * scale) / 2;
-    const offsetY = (this.ui.height - DESIGN_H * scale) / 2 + 30 * scale;
+    const offsetY = (this.ui.height - DESIGN_H * scale) / 2 + 30 * scale ;
     const scaleRect = (r) => ({
       x: offsetX + r.x * scale,
       y: offsetY + r.y * scale,
