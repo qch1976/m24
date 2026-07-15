@@ -35,17 +35,17 @@ const OP_DISPLAY = { '+': '+', '-': '-', '*': '×', '/': '÷' };
 // INPUT-03 bugfix（Architect 72 号 v2 §4）：全部 y 坐标上移 10 DP，
 //   与卡牌底行新 y∈[304,474] 保持 16 DP 安全间距，且区底部 y+h = 870 ≤ 891。
 export const ANSWER_ANCHOR = {
-  // 卡牌区上移 100 DP 后，答题区顶部 y=490（bugfix 前为 500）
-  area:      { x: 15,  y: 490, w: 381, h: 380 },
-  formula:   { x: 25,  y: 502, w: 361, h: 56  },
-  // 数字键区 y=570，高 60；4 键等宽
-  numRow:    { x: 25,  y: 570, w: 361, h: 60,  cols: 4, gap: 8 },
-  // 运算键区 y=640，6 键
-  opRow:     { x: 25,  y: 640, w: 361, h: 60,  cols: 6, gap: 6 },
-  // 控制键区 y=710，3 键
-  ctrlRow:   { x: 25,  y: 710, w: 361, h: 60,  cols: 3, gap: 10 },
+  // 答题区顶边下移 30 DP，底边不变：y+30, h-30
+  area:      { x: 15,  y: 520, w: 381, h: 350 },
+  formula:   { x: 25,  y: 532, w: 361, h: 56  },
+  // 数字键区 y=600，高 60；4 键等宽
+  numRow:    { x: 25,  y: 600, w: 361, h: 60,  cols: 4, gap: 8 },
+  // 运算键区 y=670，6 键
+  opRow:     { x: 25,  y: 670, w: 361, h: 60,  cols: 6, gap: 6 },
+  // 控制键区 y=740，3 键
+  ctrlRow:   { x: 25,  y: 740, w: 361, h: 60,  cols: 3, gap: 10 },
   // 说明文字
-  hintLine:  { x: 205, y: 790 },
+  hintLine:  { x: 205, y: 820 },
 };
 
 const OP_KEYS = ['+', '-', '*', '/', '(', ')'];

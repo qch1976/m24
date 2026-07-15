@@ -65,7 +65,7 @@
       { "type": "regexp", "value": "^bugfix-.*\\.(mjs|js|log)$" },
       { "type": "regexp", "value": ".*\\.mjs$" },
       { "type": "regexp", "value": "^.*\\.log$" },
-      { "type": "regexp", "value": "^_.*" },
+      { "type": "regexp", "value": "^_[^/]*$" },
       { "type": "regexp", "value": "^tmp.*" },
       { "type": "regexp", "value": ".*\\.bak$" },
       { "type": "regexp", "value": ".*\\.[0-9a-f]{7,}$" },
