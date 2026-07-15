@@ -51,10 +51,35 @@
   "simulatorPluginLibVersion": {},
   "packOptions": {
     "ignore": [
-      {
-        "type": "folder",
-        "value": ".cloudbase"
-      }
+      { "type": "folder", "value": ".cloudbase" },
+      { "type": "folder", "value": "output" },
+      { "type": "folder", "value": "screenshots_input04" },
+      { "type": "folder", "value": "scripts" },
+      { "type": "folder", "value": "tester" },
+      { "type": "folder", "value": "docs" },
+      { "type": "folder", "value": ".git" },
+      { "type": "folder", "value": "node_modules" },
+      { "type": "regexp", "value": "^selftest_.*\\.(mjs|js|log)$" },
+      { "type": "regexp", "value": "^tester-.*\\.(mjs|js|log)$" },
+      { "type": "regexp", "value": "^verify-.*\\.(mjs|js|log)$" },
+      { "type": "regexp", "value": "^bugfix-.*\\.(mjs|js|log)$" },
+      { "type": "regexp", "value": ".*\\.mjs$" },
+      { "type": "regexp", "value": "^.*\\.log$" },
+      { "type": "regexp", "value": "^_.*" },
+      { "type": "regexp", "value": "^tmp.*" },
+      { "type": "regexp", "value": ".*\\.bak$" },
+      { "type": "regexp", "value": ".*\\.[0-9a-f]{7,}$" },
+      { "type": "file", "value": "README.md" },
+      { "type": "file", "value": ".eslintrc.js" },
+      { "type": "file", "value": ".gitignore" },
+      { "type": "regexp", "value": "^INPUT-.*\\.md$" },
+      { "type": "regexp", "value": ".*AGENTS.*" },
+      { "type": "file", "value": "SOUL.md" },
+      { "type": "file", "value": "TEAM.md" },
+      { "type": "file", "value": "USER.md" },
+      { "type": "file", "value": "IDENTITY.md" },
+      { "type": "file", "value": "TOOLS.md" },
+      { "type": "file", "value": "HEARTBEAT.md" }
     ],
     "include": []
   },
