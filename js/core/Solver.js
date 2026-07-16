@@ -514,19 +514,78 @@ function _normalizeOneMulDiv(node) {
   return { op: node.op, args: [l, r] };
 }
 
+// ============ Bugfix: ×/÷ 链统一扁平化去重 ============
+// 将 ×/÷ 链扁平化为分子因子列表和分母因子列表
+// × ：左右子都加到当前列表；÷ ：右子取反（分母翻到分子，分子翻到分母）
+function _flattenMulDivFactors(node, numOut, denOut) {
+  if (node.op === '*') {
+    _flattenMulDivFactors(node.args[0], numOut, denOut);
+    _flattenMulDivFactors(node.args[1], numOut, denOut);
+  } else if (node.op === '/') {
+    _flattenMulDivFactors(node.args[0], numOut, denOut);
+    _flattenMulDivFactors(node.args[1], denOut, numOut);
+  } else {
+    numOut.push(_toCanonicalKeyV2Raw(node));
+  }
+}
+
+// 清理因子列表：去掉值为 1 的因子、GCD 约简共同整数因子
+function _cleanupMulDivFactors(num, den) {
+  // 1) 移除 n1/1（×1 和 ÷1 是恒等变形）
+  let n = num.filter(k => k !== 'n1/1');
+  let d = den.filter(k => k !== 'n1/1');
+
+  // 2) GCD 约简共同整数因子（只处理 nX/1 形式的纯整数叶子）
+  const parseIntLeaf = (k) => {
+    const m = k && k.match(/^n(-?\d+)\/1$/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+  const nVals = n.map(parseIntLeaf);
+  const dVals = d.map(parseIntLeaf);
+
+  for (let i = 0; i < nVals.length; i++) {
+    if (nVals[i] === null || nVals[i] === 0) continue;
+    for (let j = 0; j < dVals.length; j++) {
+      if (dVals[j] === null || dVals[j] === 0) continue;
+      const g = gcd(Math.abs(nVals[i]), Math.abs(dVals[j]));
+      if (g > 1) {
+        nVals[i] /= g;
+        dVals[j] /= g;
+      }
+    }
+  }
+
+  // 重建并再次过滤掉值变为 1 的因子
+  n = n.map((k, i) => {
+    if (nVals[i] === null) return k;
+    return nVals[i] === 1 ? null : `n${nVals[i]}/1`;
+  }).filter(k => k !== null);
+
+  d = d.map((k, i) => {
+    if (dVals[i] === null) return k;
+    return dVals[i] === 1 ? null : `n${dVals[i]}/1`;
+  }).filter(k => k !== null);
+
+  return [n, d];
+}
+
 function _toCanonicalKeyV2Raw(node) {
   if (node.op === 'num') {
     return `n${node.value.num}/${node.value.den}`;
   }
-  // × ：沿用 v1 排序语义（交换律）
-  if (node.op === '*') {
-    const flat = flattenSameOp(node, '*').map(_toCanonicalKeyV2Raw);
-    flat.sort();
-    return `(*|${flat.join('|')})`;
-  }
-  // ÷ ：保序不变（硬约束：不做 a÷(b×c) ≡ (a÷b)÷c）
-  if (node.op === '/') {
-    return `(/|${_toCanonicalKeyV2Raw(node.args[0])}|${_toCanonicalKeyV2Raw(node.args[1])})`;
+  // ×/÷ ：统一扁平化为 num/den 因子列表，消除等价变形
+  //   a÷(b÷c) ≡ (a×c)÷b 、 a×(b÷c) ≡ (a×b)÷c 、 (a÷b)÷c ≡ a÷(b×c)
+  if (node.op === '*' || node.op === '/') {
+    const num = [];
+    const den = [];
+    _flattenMulDivFactors(node, num, den);
+    const [cNum, cDen] = _cleanupMulDivFactors(num, den);
+    cNum.sort();
+    cDen.sort();
+    if (cDen.length === 0) {
+      return `(*|${cNum.join('|')})`;
+    }
+    return `(*/|${cNum.join('|')}|${cDen.join('|')})`;
   }
   // +/-：符号项化 + push down 后按 (sign, key) 排序
   if (node.op === '+' || node.op === '-') {
