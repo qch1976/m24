@@ -1,5 +1,5 @@
 {
-  "description": "m24 - 24 点微信小游戏",
+  "description": "m24 - 24 鐐瑰井淇″皬娓告垙",
   "setting": {
     "urlCheck": false,
     "es6": true,
@@ -56,6 +56,7 @@
       { "type": "folder", "value": "screenshots_input04" },
       { "type": "folder", "value": "scripts" },
       { "type": "folder", "value": "tester" },
+      { "type": "folder", "value": "selftest" },
       { "type": "folder", "value": "docs" },
       { "type": "folder", "value": ".git" },
       { "type": "folder", "value": "node_modules" },
