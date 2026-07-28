@@ -1,0 +1,2 @@
+# Enforce LF for .mjs test/verify scripts to avoid CRLF/LF SHA discrepancies
+*.mjs text eol=lf

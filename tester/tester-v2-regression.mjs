@@ -1,0 +1,130 @@
+// tester-v2-regression.mjs
+// v2 全量回归 · INPUT-02 / INPUT-03 / INPUT-04-v1 / 保护清单
+// 独立采样，不引 worker2 selftest 数据
+// 基线：fc3f1cc
+
+import fs from 'fs';
+import { createHash } from 'crypto';
+import * as S from '../js/core/Solver.mjs';
+
+const {
+  findSolutionsWithAST,
+  chooseCanonicalSolution,
+  postOrderSteps,
+  divideFractions,
+  addFractions,
+  subtractFractions,
+  multiplyFractions,
+  is24,
+  intToFraction,
+  formatExprPretty,
+  toCanonicalKeyV2,
+} = S;
+
+let PASS = 0, FAIL = 0;
+function check(name, cond, detail = '') {
+  console.log(`  ${cond ? '✓' : '✗'} ${name}` + (detail ? ` — ${detail}` : ''));
+  cond ? PASS++ : FAIL++;
+}
+
+console.log('=== R1: INPUT-02 回归（[3,3,8,8] 唯一解 + 采样） ===');
+{
+  const sols = findSolutionsWithAST([3, 3, 8, 8]);
+  check('R1.1 [3,3,8,8] 归一后仍唯一解', sols.length === 1, `实际 ${sols.length}`);
+  const _8 = intToFraction(8), _3 = intToFraction(3);
+  const q = divideFractions(_8, subtractFractions(_3, divideFractions(_8, _3)));
+  check('R1.2 [3,3,8,8] 解值 = 24', is24(q));
+
+  // 抽样 5 组 solvable
+  for (const d of [[3,3,8,8],[1,2,3,4],[5,6,6,7],[1,5,5,5],[4,4,10,10]]) {
+    const s = findSolutionsWithAST(d);
+    check(`R1.3 ${JSON.stringify(d)} 至少 1 解`, s.length >= 1, `${s.length}`);
+  }
+  // 2 组 unsolvable
+  for (const d of [[1,1,1,1],[1,1,1,2]]) {
+    const s = findSolutionsWithAST(d);
+    check(`R1.4 ${JSON.stringify(d)} 0 解`, s.length === 0);
+  }
+}
+
+console.log('\n=== R2: INPUT-03 回归（divideFractions 除零契约） ===');
+{
+  check('R2.1 divideFractions(8, 0) = null', divideFractions(intToFraction(8), intToFraction(0)) === null);
+  check('R2.2 divideFractions(5, 0/1) = null', divideFractions(intToFraction(5), { num: 0, den: 1 }) === null);
+  const r = divideFractions(intToFraction(8), intToFraction(2));
+  check('R2.3 divideFractions(8, 2) = 4/1', r && r.num === 4 && r.den === 1);
+  const zero = subtractFractions(intToFraction(3), intToFraction(3));
+  check('R2.4 除零传播 8÷(3-3) = null', divideFractions(intToFraction(8), zero) === null);
+}
+
+console.log('\n=== R3: INPUT-04 v1 回归（postOrderSteps + 字典序 + 幂等） ===');
+{
+  const sols = findSolutionsWithAST([5, 6, 6, 7]);
+  const chosen = chooseCanonicalSolution(sols, [5, 6, 6, 7]);
+  const steps = postOrderSteps(chosen.ast);
+  check('R3.1 postOrderSteps 长度 = 3', steps.length === 3, `实际 ${steps.length}`);
+  check('R3.2 步骤 3 最终结果 = 24', steps[2].result === '24' || steps[2].result === 24);
+  const c1 = chooseCanonicalSolution(sols, [5, 6, 6, 7]);
+  const c2 = chooseCanonicalSolution(sols, [5, 6, 6, 7]);
+  check('R3.3 chooseCanonical 幂等', c1.expr === c2.expr);
+  const exprs = sols.map(s => s.expr);
+  const sorted = [...exprs].sort();
+  check('R3.4 findSolutions 输出按 expr 字典序', JSON.stringify(exprs) === JSON.stringify(sorted));
+}
+
+console.log('\n=== R4: INPUT-04 bugfix v1 回归（toCanonicalKeyV2 硬约束） ===');
+{
+  const num = (n) => ({ op: 'num', value: intToFraction(n), label: String(n) });
+  const bin = (op, a, b) => ({ op, args: [a, b] });
+  // Bug 1 硬约束（v1 已过）
+  check('R4.1 a÷(b×c) ≠ (a÷b)÷c', 
+    toCanonicalKeyV2(bin('/', num(8), bin('*', num(3), num(3)))) !== 
+    toCanonicalKeyV2(bin('/', bin('/', num(8), num(3)), num(3))));
+  check('R4.2 a-b ≠ b-a',
+    toCanonicalKeyV2(bin('-', num(5), num(3))) !==
+    toCanonicalKeyV2(bin('-', num(3), num(5))));
+  check('R4.3 a÷a 不化简为 1',
+    toCanonicalKeyV2(bin('/', num(5), num(5))) !==
+    toCanonicalKeyV2(num(1)));
+  check('R4.4 a-a 不消元为 0',
+    toCanonicalKeyV2(bin('-', num(5), num(5))) !==
+    toCanonicalKeyV2(num(0)));
+  // Bug 2 硬约束（formatExprPretty）
+  check('R4.5 formatExprPretty 最外层不加括号',
+    formatExprPretty(bin('+', num(5), num(6))) === '5+6');
+  check('R4.6 formatExprPretty a÷(b×c) 保括号',
+    formatExprPretty(bin('/', num(8), bin('*', num(3), num(3)))) === '8÷(3×3)');
+  // [5,6,6,7] 归一后仍 4 解（Bug 1 v2 未回归）
+  const sols = findSolutionsWithAST([5,6,6,7]);
+  check('R4.7 [5,6,6,7] Bug 1 v1 归一 = 4 解（v2 归一不影响）', sols.length === 4, `${sols.length}`);
+}
+
+console.log('\n=== R5: 保护清单 6 文件 sha256 @ fc3f1cc（独立计算） ===');
+{
+  const baseline = {
+    'js/ui/CardRenderer.js':   '1392807b1eb84ec93432210a2ef8daac86fe98c3a9f6768b9a763c80b96558bb',
+    'js/ui/Components.js':     '51635ff68be10e0e26ef606a9aad2d65eea4da9abfd2dbacc9986e1649c9d3bd',
+    'js/ui/Background.js':     '70c843fde737ca136d2fe6a22883f7d16ad11267e2e38296e475c68f91971844',
+    'js/ui/ButtonRenderer.js': '99f02a7f53997937fdc00c84bb1863a6d5a237af6ab438cebb11d14e89169b56',
+    'js/core/Card.js':         '573a0cce9634b5eee3be24813044a415d5c06053a0f075b039487258412deaba',
+    'js/utils/Random.js':      'd31a39afe50443dfdf166a9e0ff6880fe41cf5369f15136eb4623d963321dbad',
+  };
+  for (const [file, expected] of Object.entries(baseline)) {
+    const actual = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    check(`R5 ${file}`, actual === expected, `expected=${expected.slice(0,16)}... actual=${actual.slice(0,16)}...`);
+  }
+}
+
+console.log('\n=== R6: [3,3,8,8] pretty 显示（可选观察） ===');
+{
+  const sols = findSolutionsWithAST([3, 3, 8, 8]);
+  const p = formatExprPretty(sols[0].ast);
+  console.log(`   [3,3,8,8] 唯一解 pretty = "${p}"`);
+  check('R6.1 pretty 非空', p && p.length > 0);
+}
+
+console.log('\n=========================================');
+console.log(`REGRESSION TOTAL: pass=${PASS} fail=${FAIL}`);
+console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅' : 'FAIL ❌'}`);
+console.log('=========================================');
+if (FAIL > 0) process.exit(1);
