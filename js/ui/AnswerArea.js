@@ -42,8 +42,8 @@ export const ANSWER_ANCHOR = {
   numRow:    { x: 25,  y: 600, w: 361, h: 60,  cols: 4, gap: 8 },
   // 运算键区 y=670，6 键
   opRow:     { x: 25,  y: 670, w: 361, h: 60,  cols: 6, gap: 6 },
-  // 控制键区 y=740，3 键
-  ctrlRow:   { x: 25,  y: 740, w: 361, h: 60,  cols: 3, gap: 10 },
+  // 控制键区 y=740，4 键（INPUT-05：cols=3→4，新增 [无解] 按钮）
+  ctrlRow:   { x: 25,  y: 740, w: 361, h: 60,  cols: 4, gap: 10 },
   // 说明文字
   hintLine:  { x: 205, y: 820 },
 };
@@ -53,7 +53,12 @@ const CTRL_KEYS = [
   { key: 'del',    text: '删除' },
   { key: 'clear',  text: '清空' },
   { key: 'submit', text: '提交' },
+  { key: 'nosol',  text: '无解' }, // INPUT-05 新增
 ];
+
+// INPUT-05：ctrl 按钮颜色主题（无解=红色 #E74C3C）
+const BTN_BG_NOSOL_ON = '#E74C3C';
+const BTN_BG_NOSOL_DISABLED = 'rgba(231,76,60,0.35)';
 
 // ============ 合法性检查 ============
 export function checkLegality(tokens) {
@@ -308,20 +313,25 @@ export default class AnswerArea {
       if (c.key === 'submit') {
         disabled = !this.canSubmit();
         bg = disabled ? BTN_BG_CTRL : BTN_BG_SUBMIT_ON;
+      } else if (c.key === 'nosol') {
+        // INPUT-05：[无解] 可用条件 = 已发牌（!this.enabled === true 则置灰）
+        disabled = !this.enabled;
+        bg = disabled ? BTN_BG_NOSOL_DISABLED : BTN_BG_NOSOL_ON;
       } else if ((c.key === 'del' || c.key === 'clear') && this.tokens.length === 0) {
         disabled = true;
       }
-      this._drawButton(ctx, btn, c.text, bg, disabled, scale);
+      this._drawButton(ctx, btn, c.text, bg, disabled, scale, 15); // INPUT-05：ctrl cols=4 后字号 18→15px
       this._buttonRects.push({ key: `ctrl:${c.key}`, ctrlKey: c.key, kind: 'ctrl', disabled, ...btn });
     }
   }
 
-  _drawButton(ctx, rect, text, bg, disabled, scale) {
+  _drawButton(ctx, rect, text, bg, disabled, scale, fontSize) {
+    const fs = typeof fontSize === 'number' ? fontSize : 20;
     ctx.fillStyle = disabled ? BTN_BG_DISABLED : bg;
     roundRect(ctx, rect.x, rect.y, rect.w, rect.h, BTN_RADIUS);
     ctx.fill();
     ctx.fillStyle = disabled ? BTN_FG_DISABLED : BTN_FG;
-    ctx.font = `bold ${Math.floor(20 * scale)}px sans-serif`;
+    ctx.font = `bold ${Math.floor(fs * scale)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, rect.x + rect.w / 2, rect.y + rect.h / 2);
@@ -379,6 +389,7 @@ export default class AnswerArea {
       if (btn.ctrlKey === 'del') { this.removeLastToken(); return { action: 'changed' }; }
       if (btn.ctrlKey === 'clear') { this.clearTokens(); return { action: 'changed' }; }
       if (btn.ctrlKey === 'submit') return { action: 'submit' };
+      if (btn.ctrlKey === 'nosol') return { action: 'nosol' };
     }
     return { action: 'noop' };
   }

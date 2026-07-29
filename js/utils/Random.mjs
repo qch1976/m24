@@ -1,0 +1,12 @@
+// m24 - Random.mjs (ESM for Node self-test)
+export function shuffle(array) {
+  const shuffled = array.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+export function pickN(array, n) {
+  return shuffle(array).slice(0, n);
+}

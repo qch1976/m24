@@ -1,0 +1,3 @@
+[selftest_input05_nosolution] R-04 双分支: unsolved=5 solved=5 ok=10 fail=0
+  ✓ _handleNoSolTap 无自动发牌调用
+PASS

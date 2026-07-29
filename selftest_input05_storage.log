@@ -1,0 +1,10 @@
+  ✓ 1) 空 storage → default solvable
+  ✓ 2) 非对象 → default
+  ✓ 3) version=99 → default
+  ✓ 4) dealMode=invalid → default
+  ✓ 5) getStorageSync throws → default
+  ✓ 6) save random then load = random
+  ✓ 7) save solvable then load = solvable
+  ✓ 8) save weird → normalized to solvable
+[selftest_input05_storage] R-05: ok=8 fail=0
+PASS

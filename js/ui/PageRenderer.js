@@ -14,6 +14,12 @@ import AnswerArea from './AnswerArea';
 import Modal from './Modal';
 import HintModal from './HintModal';
 import AnswerModal from './AnswerModal';
+// INPUT-05 新增
+import { loadSettings, DEAL_MODE } from '../core/Settings';
+import { generate as generateHand } from '../core/DealGenerator';
+import SettingsPanel from './SettingsPanel';
+import SettingsButton, { drawSettingsButton, hitSettingsButton, SETTINGS_BTN_ANCHOR } from './SettingsButton';
+import NoSolutionModal from './NoSolutionModal';
 
 const PAGE = {
   INDEX: 'index',
@@ -47,7 +53,18 @@ const LAYOUT_ANCHOR = {
   //   既有 dealBtn / cards 字段字节零变化（仅在下方追加）
   hintBtn: { x: 35, y: 60, w: 100, h: 50 },
   answerBtn: { x: 275, y: 60, w: 100, h: 50 },
+  // INPUT-05：⚙️ 设置按钮左上角 40×40
+  settingsBtn: { x: 15, y: 15, w: 40, h: 40 },
 };
+
+// INPUT-05：顶行三按钮颜色主题（添加提示琉珀 / 给发牌蓝 / 答案翠绿）
+// 颜色来源：106-INPUT05 §2.3
+const HINT_BTN_BG = '#F5A623';               // 琉珀（提示）
+const HINT_BTN_BG_DISABLED = 'rgba(245,166,35,0.35)';
+const DEAL_BTN_COLOR_INPUT05 = '#3884FF';    // 蓝（发牌）- 注：drawDealButton 已硬编，保持一致
+const ANSWER_BTN_BG = '#2ECC71';             // 翠绿（答案）
+const ANSWER_BTN_BG_DISABLED = 'rgba(46,204,113,0.35)';
+
 
 const DEAL_STATE = {
   IDLE: 'idle',
@@ -86,6 +103,11 @@ export default class PageRenderer {
     // INPUT-04 新增：提示 + 答案弹窗
     this.hintModal = new HintModal();
     this.answerModal = new AnswerModal();
+    // INPUT-05 新增
+    this.settingsPanel = new SettingsPanel();
+    this.noSolModal = new NoSolutionModal();
+    this._settings = loadSettings(); // 启动时读取
+    this._dealMode = this._settings.dealMode;
   }
 
   _ensureBackground() {
@@ -127,6 +149,7 @@ export default class PageRenderer {
       cards: LAYOUT_ANCHOR.cards.map(scaleRect),
       hintBtn: scaleRect(LAYOUT_ANCHOR.hintBtn),
       answerBtn: scaleRect(LAYOUT_ANCHOR.answerBtn),
+      settingsBtn: scaleRect(LAYOUT_ANCHOR.settingsBtn),
     };
   }
 
@@ -168,6 +191,21 @@ export default class PageRenderer {
 
     // INPUT-03：在 TABLE 页优先处理弹层与答题区
     if (page === PAGE.TABLE) {
+      // INPUT-05：设置面板最优先（模态）
+      if (this.settingsPanel && this.settingsPanel.isVisible()) {
+        const key = this.settingsPanel.hit(touch);
+        this.settingsPanel.handleHit(key);
+        // 保存后刷新当前模式
+        this._dealMode = this.settingsPanel.getCurrentMode();
+        this._settings = loadSettings();
+        return;
+      }
+      // INPUT-05：无解弹窗（在提示/结果弹窗之上）
+      if (this.noSolModal && this.noSolModal.isVisible()) {
+        const nk = this.noSolModal.hit(touch);
+        if (nk === 'close') { this.noSolModal.close(); return; }
+        return;
+      }
       // INPUT-04：HintModal 优先（比结果弹层更高优先级；同一时刻只应有一个可见）
       if (this.hintModal && this.hintModal.isVisible()) {
         const hintHit = this.hintModal.hit(touch);
@@ -196,6 +234,9 @@ export default class PageRenderer {
         const r = this.answerArea.handleButton(hitBtn);
         if (r.action === 'submit') {
           this._doSubmit();
+        } else if (r.action === 'nosol') {
+          // INPUT-05：[无解] 双分支（不自动发牌）
+          this._handleNoSolTap();
         }
         return;
       }
@@ -292,8 +333,18 @@ export default class PageRenderer {
       h: layout.answerBtn.h,
       disabled: !auxEnabled,
     };
-    this._drawAuxButton(ctx, hintBtn, layout.scale);
-    this._drawAuxButton(ctx, answerBtn, layout.scale);
+    this._drawAuxButton(ctx, hintBtn, layout.scale, HINT_BTN_BG, HINT_BTN_BG_DISABLED);
+    this._drawAuxButton(ctx, answerBtn, layout.scale, ANSWER_BTN_BG, ANSWER_BTN_BG_DISABLED);
+
+    // INPUT-05：⚙️ 设置按钮（左上角）
+    const settingsBtn = {
+      key: 'settings',
+      x: layout.settingsBtn.x,
+      y: layout.settingsBtn.y,
+      w: layout.settingsBtn.w,
+      h: layout.settingsBtn.h,
+    };
+    drawSettingsButton(ctx, settingsBtn, layout.scale);
 
     // 4 张牌（2×2 布局；发牌顺序：左上→右上→左下→右下 = 数组索引 0/1/2/3）
     const now = Date.now();
@@ -346,13 +397,20 @@ export default class PageRenderer {
     this.hintModal.render(ctx, w, h);
     this.answerModal.render(ctx, w, h);
 
-    this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn, hintBtn, answerBtn];
+    // INPUT-05：无解弹窗 + 设置面板（最顶层）
+    this.noSolModal.render(ctx, w, h);
+    this.settingsPanel.render(ctx, w, h);
+
+    this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn, hintBtn, answerBtn, settingsBtn];
   }
 
-  // INPUT-04：绘制蓝色主色辅助按钮（提示 / 答案），沿用发牌按钮蓝色系
-  _drawAuxButton(ctx, btn, scale) {
+  // INPUT-04：绘制彩色辅助按钮（提示 / 答案）
+  // INPUT-05：开放 bg/bgDisabled 参数，默认保持 INPUT-04 蓝色向后兼容
+  _drawAuxButton(ctx, btn, scale, bg, bgDisabled) {
+    const _bg = bg || AUX_BTN_BG;
+    const _bgDis = bgDisabled || AUX_BTN_BG_DISABLED;
     ctx.save();
-    ctx.fillStyle = btn.disabled ? AUX_BTN_BG_DISABLED : AUX_BTN_BG;
+    ctx.fillStyle = btn.disabled ? _bgDis : _bg;
     roundRect(ctx, btn.x, btn.y, btn.w, btn.h, AUX_BTN_RADIUS * (scale || 1));
     ctx.fill();
     ctx.fillStyle = btn.disabled ? AUX_BTN_FG_DISABLED : AUX_BTN_FG;
@@ -438,7 +496,10 @@ export default class PageRenderer {
     //   1) deal(4) → dealSolvable(4)（保证发牌可解）
     //   2) 拿到 4 张后调用 gameCore.recordSolutions(cards) 持有全解（R-03）
     // 布局 / 翻牌动画 / 状态机 / 按钮 / 文字 / 视觉常量均保持不变
-    this.dealtCards = this.deck.dealSolvable(4);
+    // INPUT-05：发牌模式分支—— solvable 沿用 dealSolvable；random 走 DealGenerator.generateRandom
+    // dealMode 从启动时读取 loadSettings() 得到；面板保存后刷新 this._dealMode
+    const mode = this._dealMode === DEAL_MODE.RANDOM ? DEAL_MODE.RANDOM : DEAL_MODE.SOLVABLE;
+    this.dealtCards = generateHand(mode, this.deck);
     if (this.ui && this.ui.gameCore && typeof this.ui.gameCore.recordSolutions === 'function') {
       this.ui.gameCore.recordSolutions(this.dealtCards);
     }
@@ -456,6 +517,23 @@ export default class PageRenderer {
     // INPUT-04：换牌时强制关闭提示 / 答案弹窗（提示进度自然清零）
     if (this.hintModal) this.hintModal.close();
     if (this.answerModal) this.answerModal.close();
+    // INPUT-05：换牌时关闭无解弹窗
+    if (this.noSolModal) this.noSolModal.close();
+  }
+
+  // INPUT-05：[无解] 按钮双分支处理
+  //   - Solver 判无解（solutions.length===0）→ 庆祝弹窗～“本局确实无解！”
+  //   - Solver 判有解 → toast “再想想…”
+  //   - 两分支均不自动发牌（R-04 硬约束）
+  _handleNoSolTap() {
+    const gc = this.ui && this.ui.gameCore;
+    if (!gc || typeof gc.getSolutions !== 'function') return;
+    const hasSolution = gc.getSolutions().length > 0;
+    if (!hasSolution) {
+      this.noSolModal.showCelebrate();
+    } else {
+      this.noSolModal.showToast();
+    }
   }
 
   // INPUT-03（Architect 60 号修订版）：提交处理
@@ -525,6 +603,13 @@ export default class PageRenderer {
       else if (key === 'deal') this._dealAction();
       else if (key === 'hint') this._openHintModal();
       else if (key === 'answer') this._openAnswerModal();
+      else if (key === 'settings') {
+        // INPUT-05：打开设置面板；保存回调刷新当前 dealMode
+        this.settingsPanel.open((newMode) => {
+          this._dealMode = newMode;
+          this._settings = loadSettings();
+        });
+      }
     } else if (page === PAGE.GAME) {
       if (key === 'back') this.ui.switchTo(PAGE.INDEX);
     } else if (page === PAGE.RESULT) {
