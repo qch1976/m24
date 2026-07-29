@@ -1,8 +1,8 @@
 // selftest_input05_nosolution.mjs — R-04
 // [无解] 按钮双分支：solutions.length===0 → celebrate；>0 → toast
 // 且两分支均不自动发牌（PageRenderer._handleNoSolTap 中不调 _dealAction）
-import { generateRandom } from './js/core/DealGenerator.mjs';
-import Solver from './js/core/Solver.mjs';
+import { generateRandom } from '../js/core/DealGenerator.mjs';
+import Solver from '../js/core/Solver.mjs';
 
 // 逻辑等价测试（模拟 _handleNoSolTap 判定路径）
 function noSolBranch(cardValues) {

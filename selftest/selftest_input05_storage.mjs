@@ -1,6 +1,6 @@
 // selftest_input05_storage.mjs — R-05
 // 持久化 loadSettings/saveSettings 5 降级触发点 + 往返一致
-import { loadSettings, saveSettings, DEAL_MODE } from './js/core/Settings.mjs';
+import { loadSettings, saveSettings, DEAL_MODE } from '../js/core/Settings.mjs';
 
 // mock wx storage
 let store = {};

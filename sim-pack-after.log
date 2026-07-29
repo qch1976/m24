@@ -3,8 +3,8 @@
 ROOT = C:\Users\Administrator\Desktop\Wechat projects\m24
 ==========================================================
 INCLUDED (进包): 89 files, 1515.1 KB
-EXCLUDED (被排除): 78 items, 9352.6 KB
-总原始: 10867.8 KB
+EXCLUDED (被排除): 72 items, 9382.5 KB
+总原始: 10897.6 KB
 
 --- INCLUDED TOP 30 ---
      88.27 KB  images/cards/heart-K.png
@@ -39,21 +39,21 @@ EXCLUDED (被排除): 78 items, 9352.6 KB
      11.24 KB  images/cards/heart-7.png
 
 --- EXCLUDED TOP 15 ---
-   5724.16 KB  .git  (folder:.git)
+   5753.08 KB  .git  (folder:.git)
    2936.05 KB  output  (folder:output)
     202.58 KB  tester  (folder:tester)
     165.21 KB  screenshots_input04  (folder:screenshots_input04)
      49.26 KB  scripts  (folder:scripts)
-     24.47 KB  tools  (folder:tools)
+     29.03 KB  tools  (folder:tools)
      22.26 KB  tester-check-INPUT03-copy.mjs  (regexp:^tester-.*\.(mjs|js|log)$)
      21.47 KB  js/core/Solver.mjs  (regexp:.*\.mjs$)
+     19.16 KB  selftest  (folder:selftest)
      10.59 KB  CardRenderer.js.2a7876a  (regexp:.*\.[0-9a-f]{7,}$)
      10.59 KB  CardRenderer.js.757d3ad  (regexp:.*\.[0-9a-f]{7,}$)
       9.71 KB  tester-INPUT04-solver.mjs  (regexp:^tester-.*\.(mjs|js|log)$)
       9.59 KB  selftest_input05_regression.log  (regexp:^selftest_.*\.(mjs|js|log)$)
       9.36 KB  selftest_bugfix_solver.mjs  (regexp:^selftest_.*\.(mjs|js|log)$)
       9.09 KB  _all_files.txt  (regexp:^_[^/]*$)
-      8.71 KB  js/core/GameCore.mjs  (regexp:.*\.mjs$)
 
 ==========================================================
 主包预计大小: 1515.1 KB  (1.48 MB)

@@ -1,7 +1,7 @@
 // selftest_input05_random.mjs — R-03
 // random 模式 200 次采样：出现有解+无解；无重摇；uniform 分布（10000 次子采样）
-import { generateRandom } from './js/core/DealGenerator.mjs';
-import Solver from './js/core/Solver.mjs';
+import { generateRandom } from '../js/core/DealGenerator.mjs';
+import Solver from '../js/core/Solver.mjs';
 
 // 200 次
 let solvedCnt = 0, unsolvedCnt = 0;
