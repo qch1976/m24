@@ -1,2 +1,14 @@
 # 忽略微信云开发调试目录
 .cloudbase/
+
+# 硬约束：项目根目录不允许 .mjs 文件（防 untracked dev-era 遗留）
+# 依据：task-59 hotfix + AGENTS.md《文件放置惯例》
+# 所有 .mjs 必须放 sub-folder（selftest/ tester/ tools/verify/ tools/），
+# ESM 副本例外（js/core/*.mjs js/utils/*.mjs 等 sub-folder 内的 .mjs 不受影响）
+/*.mjs
+
+# tmp 临时 log/debug 文件
+/_*.txt
+/_*.log
+/_*.tmp
+/_*.mjs
