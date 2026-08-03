@@ -99,16 +99,31 @@ ck('深层用例未触发 overflow', !rd.overflow && rd.iters < MAX_ITER, `iters
 console.log('\n' + '='.repeat(70));
 console.log('R-11④ 有效倒数解基准 + R-11⑤ 恒 0 正例');
 console.log('='.repeat(70));
-// ⚠️ [1,5,5,5]：R-11④ 写 24，§8 参考数据未列；实测 22。见报告 §分歧
-const BASE = [
-  [[1, 2, 3, 4], 48], [[2, 3, 4, 6], 34], [[1, 3, 4, 6], 30],
-  [[3, 3, 8, 8], 17], [[1, 2, 5, 10], 16], [[1, 1, 3, 8], 10],
-  [[1, 4, 6, 8], 5], [[2, 4, 5, 8], 3],
-];
-for (const [deck, exp] of BASE) {
+// ================================================================
+// ⚠️⚠️ R-11④ 数值断言已全组降级为「仅打印观测值」，不判红灯 ⚠️⚠️
+// 依据：Manager 2026-08-04 00:57 裁定（task-63 feedback）
+//
+// 原因：下列旧期望值（48/34/30/17/16/10/5/3）源自 08-03 23:04 规范，
+// 已被证伪 —— Architect 与 Manager 各自修掉实现缺陷后独立得出的当前
+// 正确值为：[1,2,3,4]=16(宽口径→6)、[2,3,4,6]=14、[1,3,4,6]=9、
+// [3,3,8,8]=7、[1,2,5,10]=1、[1,1,3,8]=10(巧合相同)。
+// Architect 已于 00:40 撤回原批数值（两侧共享同一盲点：拉平后不归一
+// multiset / 未消恒等元，故此前「双方同值」属假互证，不构成背书）。
+//
+// 未决项不是单一计数口径，而是【三分类去重键语义共 4 项裁定】，
+// 会整体改变全部数值。待 4 项裁定下达后连同 RecipSolver.js 键混用
+// bug（L300 原式键 / L303 归约式键）一次性返工，届时恢复为红灯断言。
+//
+// 此处刻意不写期望值：让 selftest 绿在错误答案上，比红灯更危险。
+// ================================================================
+const OBSERVE = [[1, 2, 3, 4], [2, 3, 4, 6], [1, 3, 4, 6], [3, 3, 8, 8],
+                 [1, 2, 5, 10], [1, 1, 3, 8], [1, 4, 6, 8], [2, 4, 5, 8],
+                 [1, 5, 5, 5]];
+console.log('  R-11④ 观测值（待 4 项去重键裁定，不判红灯）：');
+for (const deck of OBSERVE) {
   const res = solve(deck);
-  ck(`${JSON.stringify(deck).padEnd(14)} advanced=${res.counts.advanced} (期望 ${exp})`,
-     res.counts.advanced === exp, `P=${res.counts.primary} C=${res.counts.cancelled}`);
+  console.log(`  ??  ${JSON.stringify(deck).padEnd(14)} advanced=${String(res.counts.advanced).padEnd(4)}`
+    + ` P=${res.counts.primary} C=${res.counts.cancelled}`);
 }
 const ZERO = [[5, 5, 5, 5], [1, 1, 2, 9], [3, 3, 7, 7], [4, 4, 7, 7], [3, 3, 3, 5]];
 for (const deck of ZERO) {
@@ -116,9 +131,7 @@ for (const deck of ZERO) {
   ck(`${JSON.stringify(deck).padEnd(14)} advanced=0 且不报错`, res.counts.advanced === 0,
      `P=${res.counts.primary} C=${res.counts.cancelled}`);
 }
-// [1,5,5,5] 单列观测（不判红灯，只记录）
-const r1555 = solve([1, 5, 5, 5]);
-console.log(`  ??  [1,5,5,5] advanced=${r1555.counts.advanced}  ← R-11④写 24，实测${r1555.counts.advanced}（见报告分歧项，不计入红灯）`);
+// 注：[1,5,5,5] 已并入上方 OBSERVE 组统一观测，此处不再单列。
 
 console.log('\n' + '='.repeat(70));
 console.log('§1.4 排序确定性（3 级全序）');
