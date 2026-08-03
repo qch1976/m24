@@ -50,19 +50,31 @@ const PANEL_ANCHOR = {
   radio1: { x: 35, y: 255, w: 341, h: 40 },
   radio2: { x: 35, y: 305, w: 341, h: 40 },
   divider2: { x: 25, y: 355, w: 361, h: 2 },
-  moreLabel: { x: 35, y: 365, w: 341, h: 30 },
-  slotsRow1: { x: 35, y: 405, w: 322, h: 55 }, // 3 slots
-  slotsRow2: { x: 35, y: 475, w: 322, h: 55 }, // 2 slots
+  // INPUT-06：新增「高级计算」开关分段（插入 divider2 与 moreLabel 之间）
+  section2: { x: 35, y: 365, w: 341, h: 30 },
+  advToggle: { x: 35, y: 405, w: 341, h: 44 },
+  divider3: { x: 25, y: 461, w: 361, h: 2 },
+  // 以下原有字段均下移 106 DP（365→471 / 405→511 / 475→581）
+  moreLabel: { x: 35, y: 471, w: 341, h: 30 },
+  slotsRow1: { x: 35, y: 511, w: 322, h: 55 }, // 3 slots
+  slotsRow2: { x: 35, y: 581, w: 322, h: 55 }, // 2 slots
   cancelBtn: { x: 35, y: 685, w: 171, h: 50 },
   saveBtn: { x: 206, y: 685, w: 170, h: 50 },
 };
 
+// INPUT-06：开关视觉常量
+const SWITCH_ON_BG = '#3884FF';
+const SWITCH_OFF_BG = '#CCCCCC';
+const SWITCH_KNOB = '#FFFFFF';
+const SWITCH_W = 52;
+const SWITCH_H = 30;
+
 const SLOTS_CONFIG = [
-  { id: 'slot_advOp', label: '高级运算符' },
   { id: 'slot_difficulty', label: '难度' },
   { id: 'slot_timer', label: '计时' },
   { id: 'slot_score', label: '计分' },
-  { id: 'slot_tbd', label: 'TBD-06' },
+  { id: 'slot_tbd', label: 'TBD-07' },
+  { id: 'slot_tbd2', label: 'TBD-08' },
 ];
 
 export default class SettingsPanel {
@@ -72,16 +84,21 @@ export default class SettingsPanel {
     this._currentMode = DEAL_MODE.SOLVABLE;
     this._buttonRects = [];
     this._onSave = null;
+    // INPUT-06：高级计算开关 pending / current
+    this._pendingAdv = false;
+    this._currentAdv = false;
   }
 
   /**
    * 打开面板：从 storage 读取当前 mode 作为 pending 初值
-   * @param {Function} onSave 保存回调，签名 (newMode) => void
+   * @param {Function} onSave 保存回调，签名 (newMode, newAdvancedCalc) => void
    */
   open(onSave) {
     const s = loadSettings();
     this._currentMode = s.dealMode;
     this._pendingMode = s.dealMode;
+    this._currentAdv = !!s.advancedCalc;   // INPUT-06
+    this._pendingAdv = !!s.advancedCalc;
     this._onSave = onSave || null;
     this.visible = true;
     this._buttonRects = [];
@@ -104,11 +121,21 @@ export default class SettingsPanel {
     return this._currentMode;
   }
 
+  // INPUT-06
+  getPendingAdvancedCalc() {
+    return this._pendingAdv;
+  }
+
+  getCurrentAdvancedCalc() {
+    return this._currentAdv;
+  }
+
   _save() {
-    const ok = saveSettings({ dealMode: this._pendingMode });
+    const ok = saveSettings({ dealMode: this._pendingMode, advancedCalc: this._pendingAdv });
     if (ok) {
       this._currentMode = this._pendingMode;
-      if (this._onSave) this._onSave(this._currentMode);
+      this._currentAdv = this._pendingAdv;   // INPUT-06
+      if (this._onSave) this._onSave(this._currentMode, this._currentAdv);
     }
     this.close();
     return ok;
@@ -116,6 +143,7 @@ export default class SettingsPanel {
 
   _cancel() {
     this._pendingMode = this._currentMode;
+    this._pendingAdv = this._currentAdv;     // INPUT-06：取消也需回滚开关
     this.close();
   }
 
@@ -185,6 +213,22 @@ export default class SettingsPanel {
     ctx.fillStyle = DIVIDER;
     ctx.fillRect(d2.x, d2.y, d2.w, d2.h);
 
+    // ===== INPUT-06：高级计算分段 =====
+    const sec2 = S(PANEL_ANCHOR.section2);
+    ctx.fillStyle = TEXT_DARK;
+    ctx.font = `600 ${Math.floor(16 * scale)}px sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('高级计算', sec2.x, sec2.y + sec2.h / 2);
+
+    const advRect = S(PANEL_ANCHOR.advToggle);
+    this._drawSwitch(ctx, advRect, '倒数 1/x（默认关）', this._pendingAdv, scale);
+    this._buttonRects.push({ key: 'toggle:adv', ...advRect });
+
+    const d3 = S(PANEL_ANCHOR.divider3);
+    ctx.fillStyle = DIVIDER;
+    ctx.fillRect(d3.x, d3.y, d3.w, d3.h);
+
     // "更多功能" 标签
     const more = S(PANEL_ANCHOR.moreLabel);
     ctx.fillStyle = TEXT_MUTED;
@@ -240,6 +284,32 @@ export default class SettingsPanel {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(label, cx + cr + 10 * scale, cy);
+  }
+
+  // INPUT-06：开关控件（label 左对齐 + switch 右对齐）
+  _drawSwitch(ctx, rect, label, on, scale) {
+    const cy = rect.y + rect.h / 2;
+    // label
+    ctx.fillStyle = TEXT_DARK;
+    ctx.font = `${Math.floor(15 * scale)}px sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, rect.x + 4 * scale, cy);
+    // switch 轨道（右对齐）
+    const sw = SWITCH_W * scale;
+    const sh = SWITCH_H * scale;
+    const sx = rect.x + rect.w - sw - 4 * scale;
+    const sy = cy - sh / 2;
+    ctx.fillStyle = on ? SWITCH_ON_BG : SWITCH_OFF_BG;
+    roundRect(ctx, sx, sy, sw, sh, sh / 2);
+    ctx.fill();
+    // 滑块
+    const kr = sh / 2 - 3 * scale;
+    const kx = on ? (sx + sw - sh / 2) : (sx + sh / 2);
+    ctx.fillStyle = SWITCH_KNOB;
+    ctx.beginPath();
+    ctx.arc(kx, cy, kr, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   _drawSlotsRow(ctx, rowRect, slots, scale) {
@@ -299,6 +369,8 @@ export default class SettingsPanel {
     if (!this.visible) return { action: 'nothing' };
     if (key === 'radio:solvable') { this._pendingMode = DEAL_MODE.SOLVABLE; return { action: 'consumed' }; }
     if (key === 'radio:random')   { this._pendingMode = DEAL_MODE.RANDOM;   return { action: 'consumed' }; }
+    // INPUT-06：高级计算开关（pending 取反，需点保存才落库）
+    if (key === 'toggle:adv')     { this._pendingAdv = !this._pendingAdv;   return { action: 'consumed' }; }
     if (key === 'save')   { this._save();  return { action: 'saved' }; }
     if (key === 'cancel') { this._cancel(); return { action: 'cancelled' }; }
     if (key === 'mask')   { this._cancel(); return { action: 'cancelled' }; }

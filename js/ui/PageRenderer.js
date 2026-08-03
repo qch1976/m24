@@ -20,6 +20,9 @@ import { generate as generateHand } from '../core/DealGenerator';
 import SettingsPanel from './SettingsPanel';
 import SettingsButton, { drawSettingsButton, hitSettingsButton, SETTINGS_BTN_ANCHOR } from './SettingsButton';
 import NoSolutionModal from './NoSolutionModal';
+// INPUT-06 新增
+import RecipSolver from '../core/RecipSolver';
+import { checkUserAnswer } from '../core/RecipParser';
 
 const PAGE = {
   INDEX: 'index',
@@ -39,13 +42,27 @@ const PAGE = {
 //   - 删除 hint（“本次发牌…” 提示文字与素材加载状态渲染），并同步移除 LAYOUT_ANCHOR.hint
 const DESIGN_W = 411;
 const DESIGN_H = 891;
+// INPUT-06 §1.6：答题区默认隐藏 → 牌面下移 + 适当放大
+//   旧（INPUT-03/05）：120×170，顶行 y=118、底行 y=304，x=55/236
+//   新：144×204（1.2× 放大），水平居中 x=(411-144*2-16)/2=53.5→53 / 53+144+16=213
+//        顶行 y=190（避开顶部按钮带 y∈[60,110]，下方留 80 DP）
+//        底行 y=190+204+16=410；底沿 410+204=614 ≤ 关闭态答题区顶 614 → 不重叠
+//   注：仅改本文件 LAYOUT_ANCHOR.cards 数值，CardRenderer.js / Card.js 字节零变化
+const CARD_W = 144;
+const CARD_H = 204;
+const CARD_GAP = 16;
+const CARD_X1 = 53;
+const CARD_X2 = 213;
+const CARD_Y1 = 190;
+const CARD_Y2 = 410;
+
 const LAYOUT_ANCHOR = {
   dealBtn: { x: 155, y: 60, w: 100, h: 50 },
   cards: [
-    { x: 55,  y: 118, w: 120, h: 170 }, // 左上（INPUT-03 bugfix：下移 18 DP）
-    { x: 236, y: 118, w: 120, h: 170 }, // 右上（INPUT-03 bugfix：下移 18 DP）
-    { x: 55,  y: 304, w: 120, h: 170 }, // 左下（INPUT-03 bugfix：下移 4 DP）
-    { x: 236, y: 304, w: 120, h: 170 }, // 右下（INPUT-03 bugfix：下移 4 DP）
+    { x: CARD_X1, y: CARD_Y1, w: CARD_W, h: CARD_H }, // 左上
+    { x: CARD_X2, y: CARD_Y1, w: CARD_W, h: CARD_H }, // 右上
+    { x: CARD_X1, y: CARD_Y2, w: CARD_W, h: CARD_H }, // 左下
+    { x: CARD_X2, y: CARD_Y2, w: CARD_W, h: CARD_H }, // 右下
   ],
   // INPUT-04：新增两按钮锚点，与发牌按钮同水平层 y=[60,110]
   //   提示按钮 x=[35,135] w=100 h=50；答案按钮 x=[275,375] w=100 h=50
@@ -55,6 +72,10 @@ const LAYOUT_ANCHOR = {
   answerBtn: { x: 275, y: 60, w: 100, h: 50 },
   // INPUT-05：⚙️ 设置按钮左上角 40×40
   settingsBtn: { x: 15, y: 15, w: 40, h: 40 },
+  // INPUT-06 §1.6：答题区默认隐藏 → 需一个入口按钮拉起滑入
+  //   位于牌面底沿 614 与安全区之间；y=[640,700] h=60，水平居中 w=200
+  //   开启后被答题区遮盖（OPEN 态 area 顶 552）→ 仅在 CLOSED 态渲染
+  startAnswerBtn: { x: 105, y: 640, w: 200, h: 60 },
 };
 
 // INPUT-05：顶行三按钮颜色主题（添加提示琉珀 / 给发牌蓝 / 答案翠绿）
@@ -64,6 +85,9 @@ const HINT_BTN_BG_DISABLED = 'rgba(245,166,35,0.35)';
 const DEAL_BTN_COLOR_INPUT05 = '#3884FF';    // 蓝（发牌）- 注：drawDealButton 已硬编，保持一致
 const ANSWER_BTN_BG = '#2ECC71';             // 翠绿（答案）
 const ANSWER_BTN_BG_DISABLED = 'rgba(46,204,113,0.35)';
+// INPUT-06：[开始答题] 入口按钮（紫，与 1/x 高级键同色系）
+const START_ANSWER_BG = '#9D5BFA';
+const START_ANSWER_BG_DISABLED = 'rgba(157,91,250,0.35)';
 
 
 const DEAL_STATE = {
@@ -108,6 +132,42 @@ export default class PageRenderer {
     this.noSolModal = new NoSolutionModal();
     this._settings = loadSettings(); // 启动时读取
     this._dealMode = this._settings.dealMode;
+    // ============ INPUT-06 新增 ============
+    this._advancedCalc = !!this._settings.advancedCalc;
+    this.answerArea.setAdvancedCalc(this._advancedCalc);
+    this._recipResult = null;      // RecipSolver.solve() 结果
+    this._recipDisplay = null;     // buildDisplay() 结果（分区 top-10 + 计数）
+    this._recipComputing = false;  // §1.4 竞态：枚举中 → [提示]/[答案] 置灰
+  }
+
+  // ============ INPUT-06：高级计算枚举（§1.4 竞态） ============
+  // 枚举不得阻塞答题区滑入动效与主界面渲染：用 setTimeout 让出一帧
+  _computeRecipAsync(values) {
+    this._recipResult = null;
+    this._recipDisplay = null;
+    this._recipComputing = true;
+    const run = () => {
+      try {
+        const res = RecipSolver.solve(values);
+        this._recipResult = res;
+        this._recipDisplay = RecipSolver.buildDisplay(res, RecipSolver.DISPLAY_LIMIT);
+      } catch (e) {
+        console.error('[PageRenderer] RecipSolver.solve failed', e);
+        this._recipResult = null;
+        this._recipDisplay = null;
+      } finally {
+        this._recipComputing = false;
+      }
+    };
+    // 让出一帧，确保滑入动效先起步
+    if (typeof setTimeout === 'function') setTimeout(run, 0);
+    else run();
+  }
+
+  // 高级计算开关变更后的统一同步入口
+  _applyAdvancedCalc(on) {
+    this._advancedCalc = !!on;
+    if (this.answerArea) this.answerArea.setAdvancedCalc(this._advancedCalc);
   }
 
   _ensureBackground() {
@@ -150,6 +210,7 @@ export default class PageRenderer {
       hintBtn: scaleRect(LAYOUT_ANCHOR.hintBtn),
       answerBtn: scaleRect(LAYOUT_ANCHOR.answerBtn),
       settingsBtn: scaleRect(LAYOUT_ANCHOR.settingsBtn),
+      startAnswerBtn: scaleRect(LAYOUT_ANCHOR.startAnswerBtn),
     };
   }
 
@@ -198,6 +259,8 @@ export default class PageRenderer {
         // 保存后刷新当前模式
         this._dealMode = this.settingsPanel.getCurrentMode();
         this._settings = loadSettings();
+        // INPUT-06：同步高级计算开关
+        this._applyAdvancedCalc(this._settings.advancedCalc);
         return;
       }
       // INPUT-05：无解弹窗（在提示/结果弹窗之上）
@@ -228,17 +291,20 @@ export default class PageRenderer {
         // 遮罩内其他区域无响应
         return;
       }
-      // 答题区命中优先
-      const hitBtn = this.answerArea.hitButton(touch);
-      if (hitBtn) {
-        const r = this.answerArea.handleButton(hitBtn);
-        if (r.action === 'submit') {
-          this._doSubmit();
-        } else if (r.action === 'nosol') {
-          // INPUT-05：[无解] 双分支（不自动发牌）
-          this._handleNoSolTap();
+      // 答题区命中优先（INPUT-06：仅当答题区可见时）
+      if (this.answerArea && this.answerArea.isAreaVisible()) {
+        const hitBtn = this.answerArea.hitButton(touch);
+        if (hitBtn) {
+          const r = this.answerArea.handleButton(hitBtn);
+          if (r.action === 'submit') {
+            this._doSubmit();
+          } else if (r.action === 'nosol') {
+            // INPUT-05：[无解] 双分支（不自动发牌）
+            this._handleNoSolTap();
+          }
+          // r.action === 'back' → answerArea 已自行 closeArea()
+          return;
         }
-        return;
       }
     }
 
@@ -386,10 +452,26 @@ export default class PageRenderer {
     //   删除“本次发牌…”提示文字与素材加载状态渲染，为答题区（y=490 起）腾出空间；
     //   同步移除对 layout.hint / getPreloadStats / this.dealCount(渲染) 的引用。
 
+    // INPUT-06：[开始答题] 入口按钮 —— 仅答题区完全收起时渲染
+    //   点击 → answerArea.openArea() 拉起滑入动效（与枚举无关，不被阻塞）
+    const areaClosed = !this.answerArea.isAreaVisible();
+    let startAnswerBtn = null;
+    if (areaClosed) {
+      startAnswerBtn = {
+        key: 'startAnswer',
+        text: '开始答题',
+        x: layout.startAnswerBtn.x,
+        y: layout.startAnswerBtn.y,
+        w: layout.startAnswerBtn.w,
+        h: layout.startAnswerBtn.h,
+        disabled: !dealtOk,
+      };
+      this._drawAuxButton(ctx, startAnswerBtn, layout.scale, START_ANSWER_BG, START_ANSWER_BG_DISABLED);
+    }
+
     // INPUT-03：答题区（发牌完成后才可用）
     this.answerArea.setEnabled(this.dealState === DEAL_STATE.DONE);
     this.answerArea.render(ctx, w, h);
-
     // INPUT-03：结果弹层（需在最上层）
     this.modal.render(ctx, w, h);
 
@@ -401,7 +483,9 @@ export default class PageRenderer {
     this.noSolModal.render(ctx, w, h);
     this.settingsPanel.render(ctx, w, h);
 
-    this.buttonsCache[PAGE.TABLE] = [backBtn, dealBtn, hintBtn, answerBtn, settingsBtn];
+    this.buttonsCache[PAGE.TABLE] = startAnswerBtn
+      ? [backBtn, dealBtn, hintBtn, answerBtn, settingsBtn, startAnswerBtn]
+      : [backBtn, dealBtn, hintBtn, answerBtn, settingsBtn];
   }
 
   // INPUT-04：绘制彩色辅助按钮（提示 / 答案）
@@ -503,6 +587,8 @@ export default class PageRenderer {
     if (this.ui && this.ui.gameCore && typeof this.ui.gameCore.recordSolutions === 'function') {
       this.ui.gameCore.recordSolutions(this.dealtCards);
     }
+    // INPUT-06：发牌后异步枚举倒数解（分区展示 + 提示需要）
+    this._computeRecipAsync(this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)));
     this.dealCount += 1;
     this.dealState = DEAL_STATE.DEALING;
     this.dealStartAt = Date.now();
@@ -512,6 +598,8 @@ export default class PageRenderer {
       this.answerArea.reset();
       this.answerArea.setCardValues(this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)));
       this.answerArea.setEnabled(false); // 等 DONE 后在 _renderTable 重新启用
+      // INPUT-06：同步高级计算开关（reset 不清开关，但保险重置）
+      this.answerArea.setAdvancedCalc(this._advancedCalc);
     }
     if (this.modal) this.modal.close();
     // INPUT-04：换牌时强制关闭提示 / 答案弹窗（提示进度自然清零）
@@ -537,54 +625,88 @@ export default class PageRenderer {
   }
 
   // INPUT-03（Architect 60 号修订版）：提交处理
-  // GameCore.checkAnswer 已保证只返回 2 类失败：not_24 / division_by_zero
-  // 本方法不再为其他 reason 兼容写文案（已在 GameCore 层降级）
+  // INPUT-06：改走 RecipParser.checkUserAnswer（支持 1/x + 精确 Fraction）
+  //   开关关闭时行为与 INPUT-05 一致（无 recip token → 同样只会出 not_24 / division_by_zero）
   _doSubmit() {
     if (!this.answerArea.canSubmit()) return;
     const tokens = this.answerArea.getTokens();
     const cardValues = this.answerArea.cardValues;
-    const gc = this.ui && this.ui.gameCore;
-    if (!gc || typeof gc.checkAnswer !== 'function') {
-      // 不应发生；保护不崩
-      console.error('[PageRenderer._doSubmit] gameCore.checkAnswer missing');
-      return;
-    }
-    const result = gc.checkAnswer(tokens, cardValues);
+    const result = checkUserAnswer(tokens, cardValues, { advancedCalc: this._advancedCalc });
     if (result.pass) {
       this.modal.showPass(this.answerArea.getFormulaText());
       return;
     }
-    // 仅两类失败文案（严禁泄题：不引用 getSolutions）
     let msg;
     if (result.reason === 'division_by_zero') {
       msg = '算式包含除零，无法求值';
+    } else if (result.reason === 'not_24') {
+      msg = `结果 = ${result.actualLabel != null ? result.actualLabel : '?'}`;
     } else {
-      // reason === 'not_24'（GameCore 降级保证）
-      const label = result.actualLabel != null ? result.actualLabel : String(result.actualValue);
-      msg = `结果 = ${label}`;
+      // INPUT-06：parser 类错误（非法倒数 / 括号不匹配 / 用牌重复…）
+      msg = result.message || '算式格式不正确';
     }
     this.modal.showFail(msg);
   }
 
   // INPUT-04：打开 HintModal
-  //   - 从 gameCore 获取 3 个 hint step；无解则不打开（严格：R-01 也已置灰按钮）
+  // INPUT-06 §1.4：优先给 1 步初级答案；初级无解时给 1 步倒数答案
   _openHintModal() {
     const gc = this.ui && this.ui.gameCore;
-    if (!gc || typeof gc.getHintStep !== 'function') return;
-    const s1 = gc.getHintStep(1);
-    const s2 = gc.getHintStep(2);
-    const s3 = gc.getHintStep(3);
-    if (!s1 || !s2) return;
-    this.hintModal.open([s1, s2, s3]);
+    // 优先：初级解 3 步提示（INPUT-04 原路径，保持回归）
+    if (gc && typeof gc.getHintStep === 'function') {
+      const s1 = gc.getHintStep(1);
+      const s2 = gc.getHintStep(2);
+      const s3 = gc.getHintStep(3);
+      if (s1 && s2) { this.hintModal.open([s1, s2, s3]); return; }
+    }
+    // 初级无解：陀底给倒数解第 1 条（排序后）
+    const adv = this._recipDisplay && this._recipDisplay.advancedTop;
+    if (adv) {
+      const step = { text: `高级解法：${adv} = 24`, expr: adv };
+      this.hintModal.open([step, step, step]);
+      return;
+    }
+    // 两者均空：不弹（按钮已置灰的兼容分支）
   }
 
   // INPUT-04：打开 AnswerModal
+  // INPUT-06 §1.4：分区显示「初级解法」在前、「高级解法」在后；
+  //   每分区最多 10 条，超出末尾显示「…等共 N 条」；空分区给明确文案
   _openAnswerModal() {
-    const gc = this.ui && this.ui.gameCore;
-    if (!gc || typeof gc.getAllSolutions !== 'function') return;
-    const solutions = gc.getAllSolutions();
-    // 显示格式：算式 + " = 24"；AnswerModal 内部会拼 " = 24" 后缀
-    this.answerModal.open(solutions);
+    const lines = [];
+    const d = this._recipDisplay;
+
+    // ---- 初级解法分区 ----
+    lines.push('【初级解法】');
+    if (d && d.primary.length > 0) {
+      for (const e of d.primary) lines.push(`${e} = 24`);
+      if (d.counts.primary > d.primary.length) lines.push(`…等共 ${d.counts.primary} 条`);
+    } else {
+      lines.push('本局无初级解法');
+    }
+
+    // ---- 高级解法分区（开关关闭时不展示，避免泄题未开启的用法）----
+    if (this._advancedCalc) {
+      lines.push('');
+      lines.push('【高级解法】');
+      if (d && d.advanced.length > 0) {
+        for (const e of d.advanced) lines.push(`${e} = 24`);
+        if (d.counts.advanced > d.advanced.length) lines.push(`…等共 ${d.counts.advanced} 条`);
+      } else {
+        lines.push('本局无倒数解法');
+      }
+    }
+
+    // 降级：_recipDisplay 未就绪（理论上按钮已置灰）→ 回退 INPUT-04 路径
+    if (!d) {
+      const gc = this.ui && this.ui.gameCore;
+      if (gc && typeof gc.getAllSolutions === 'function') {
+        const sols = gc.getAllSolutions();
+        this.answerModal.open(sols);
+        return;
+      }
+    }
+    this.answerModal.open(lines);
   }
 
   _onButtonTap(page, key) {
@@ -603,11 +725,14 @@ export default class PageRenderer {
       else if (key === 'deal') this._dealAction();
       else if (key === 'hint') this._openHintModal();
       else if (key === 'answer') this._openAnswerModal();
+      else if (key === 'startAnswer') this.answerArea.openArea();   // INPUT-06
       else if (key === 'settings') {
         // INPUT-05：打开设置面板；保存回调刷新当前 dealMode
-        this.settingsPanel.open((newMode) => {
+        // INPUT-06：回调同时接收 advancedCalc
+        this.settingsPanel.open((newMode, newAdv) => {
           this._dealMode = newMode;
           this._settings = loadSettings();
+          this._applyAdvancedCalc(newAdv !== undefined ? newAdv : this._settings.advancedCalc);
         });
       }
     } else if (page === PAGE.GAME) {
