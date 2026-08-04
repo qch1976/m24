@@ -1,2 +1,5 @@
 # Enforce LF for .mjs test/verify scripts to avoid CRLF/LF SHA discrepancies
 *.mjs text eol=lf
+
+# task-72: bash scripts MUST stay LF. CRLF makes them unrunnable.
+*.sh text eol=lf
