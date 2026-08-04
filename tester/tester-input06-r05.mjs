@@ -143,10 +143,18 @@ const occurrences = (pr.match(/_recipComputing/g) || []).length;
 console.log(`  _recipComputing 在 PageRenderer.js 中出现 ${occurrences} 次（声明 1 + true 1 + false 1 = 3 表示"只写不读"）`);
 ck('R-05.1⑤ _recipComputing 被读取（出现次数 > 3 说明有消费方）', occurrences > 3, `实际 ${occurrences} 次，全部为写入`);
 
-// ⑥ 「计算中…」文案（INPUT-06 §R-05.1 要求 OCR 断言）
+// ⑥ 「计算中…」文案 —— 【已撤销，非缺陷】
+//
+// 【裁定依据】项目主 2026-08-04 10:49 裁定：黄2「计算中…」文案**不做**。
+//   Manager 同步要求：r05 台账相关断言降级或移除，勿残留失败断言（失败断言长期挂红
+//   会被后人误判为未修缺陷，与我 TESTER-TODO 规则第 8 条「禁止留只在单一状态下正确
+//   的断言」同源 —— 一个永远为红且永远不会被修的断言，等价于假红）。
+//
+// 【原断言】`pr.includes('计算中') || aa.includes('计算中')` → 全仓无命中，恒为 fail。
+// 【处置】降级为**信息项**，不计入 pass/fail。保留探测与输出，便于日后若改判可直接恢复。
+// 【关联】原计划用 tesseract OCR 断言该文案，Manager 已同步撤销 `ctx.__texts()` 替代评估。
 const hasText = pr.includes('计算中') || aa.includes('计算中');
-ck('R-05.1⑥ 代码中存在「计算中…」文案（供 OCR 断言）', hasText,
-   hasText ? '' : '❌ 全仓 git grep "计算中" 无命中，UI 无该文案 → OCR 断言无对象');
+console.log(`  · [信息项·非断言] 「计算中…」文案：${hasText ? '存在' : '不存在'}（项目主裁定不做，不计 fail）`);
 
 // ⑦ 15/14 键布局随开关切换（layoutFor 统一入口）
 ck('R-05.1⑦ layoutFor(advancedCalc) 统一布局入口存在', /export function layoutFor\(advancedCalc\)/.test(aa));
