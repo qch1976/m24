@@ -380,7 +380,8 @@ export default class PageRenderer {
     drawDealButton(ctx, dealBtn);
 
     // INPUT-04：提示 / 答案按钮
-    const auxEnabled = this.dealState === DEAL_STATE.DONE && this.dealtCards && this.dealtCards.length === 4;
+    // 红1 方案 B：枚举进行中则 [提示]/[答案] 置灰（R-05.1⑤ §1.4 竞态）
+    const auxEnabled = this.dealState === DEAL_STATE.DONE && this.dealtCards && this.dealtCards.length === 4 && !this._recipComputing;
     const hintBtn = {
       key: 'hint',
       text: '提示',
@@ -657,6 +658,7 @@ export default class PageRenderer {
   // INPUT-04：打开 HintModal
   // INPUT-06 §1.4：优先给 1 步初级答案；初级无解时给 1 步倒数答案
   _openHintModal() {
+    if (this._recipComputing) return;   // 红1 方案 B：函数级自守卫，枚举窗口内不弹窗
     const gc = this.ui && this.ui.gameCore;
     // 优先：初级解 3 步提示（INPUT-04 原路径，保持回归）
     if (gc && typeof gc.getHintStep === 'function') {
@@ -679,6 +681,7 @@ export default class PageRenderer {
   // INPUT-06 §1.4：分区显示「初级解法」在前、「高级解法」在后；
   //   每分区最多 10 条，超出末尾显示「…等共 N 条」；空分区给明确文案
   _openAnswerModal() {
+    if (this._recipComputing) return;   // 红1 方案 B：函数级自守卫，枚举窗口内不弹窗
     const lines = [];
     const d = this._recipDisplay;
 
