@@ -11,7 +11,7 @@
 
 import {
   solve, keySol, reduceToFixpoint, evalNode, countRecip,
-  numLeaf, recipLeaf, F, is24F, MAX_ITER,
+  numLeaf, recipLeaf, F, is24F, MAX_ITER, ONE_NODE, ZERO_NODE,
 } from '../js/core/RecipSolver.mjs';
 
 let pass = 0, fail = 0;
@@ -93,6 +93,48 @@ for (const [name, a, b] of NEG) {
   ck(name, K(a) !== K(b), `${K(a)} vs ${K(b)}`);
 }
 
+// ================================================================
+// R5 抵消的【结构级】断言 —— 不依赖变异测试
+//
+// 背景：task-69 Tester 与我**独立**发现同一事实：R5 的 `if (net===0) continue`
+//   是**等价冗余**（后续 `Math.abs(0)===0` 使循环执行 0 次），单点变异测不出，
+//   需同时破坏 `net===0` 与 `Math.abs(net)` 才能让裁定③真正失效。
+//   Tester 报 172 表对此仅 1/14 覆盖（仅 [1,1,3,8] 哨兵）。
+//
+// ⇒ 不靠变异、也不只靠键相等，改断言**归约输出的结构本身**：
+//   被抵消的项必须真的从树上消失，而非「键碰巧相同」。用叶子计数取证。
+// ================================================================
+console.log('\n[组2b] 裁定③ R5 抵消的结构级取证（补 172 表 1/14 薄弱覆盖）');
+{
+  const leafCount = (t) => {
+    if (!t) return 0;
+    if (t.op === 'num' || t.op === 'recip') return 1;
+    if (t.op === 'one' || t.op === 'zero') return 0;
+    return leafCount(t.a) + leafCount(t.b);
+  };
+  // (24+5)-5 ：3 叶子 → 抵消后应仅剩 1
+  const e10 = sub(add(n(12), n(5)), n(5));
+  const r10 = reduceToFixpoint(e10).node;
+  ck('裁定③ (24+5)-5 叶子数 3→1（抵消项真从树上消失）',
+     leafCount(e10) === 3 && leafCount(r10) === 1,
+     `归约前=${leafCount(e10)} 归约后=${leafCount(r10)}`);
+  ck('裁定③ 归约结果为单叶子 num（非残留 +/- 节点）',
+     r10.op === 'num', `实际 op='${r10.op}'`);
+  // 3+5-5+7 ：仅中间项抵消，不得误杀其他项
+  const e13 = add(sub(add(n(3), n(5)), n(5)), n(7));
+  const r13 = reduceToFixpoint(e13).node;
+  ck('裁定③ 3+5-5+7 叶子数 4→2（只消抵消项，不误杀）',
+     leafCount(r13) === 2, `归约后叶子数=${leafCount(r13)} 键=${keySol(r13)}`);
+  ck('裁定③ 3+5-5+7 抵消后值不变（抵消不改语义）',
+     val(e13) === val(r13), `${val(e13)} → ${val(r13)}`);
+  // 全抵消：5-5 应归为 ZERO，叶子数 → 0
+  const e14 = sub(n(5), n(5));
+  const r14 = reduceToFixpoint(e14).node;
+  ck('裁定③ 5-5 全抵消 ⇒ 叶子数 2→0 且键=ZERO',
+     leafCount(r14) === 0 && keySol(r14) === keySol(ZERO_NODE),
+     `叶子数=${leafCount(r14)} 键=${keySol(r14)}`);
+}
+
 // ============================================================
 // 【组3】空分子占位符独立性 —— 规范 L43 记录的已知缺陷
 // 早期用 {op:'num',card:1} 作空分子，与牌面 1 键值相同 ⇒ 必须用独立 op。
@@ -107,8 +149,21 @@ console.log('\n[组3] 空分子占位符必须与牌面 1 区分（规范 L43 �
   ck('(5-((1/5)/1))*5 与 (5-(1/5))*5 同键（不因占位符分裂）',
      K(e1) === K(e2), `${K(e1)} vs ${K(e2)}`);
   // ONE 与牌面 1 键值必须不同
-  ck('ONE 占位键 ≠ 牌面 1 键', keySol({ op: 'one' }) !== keySol(n(1)),
-     `ONE='${keySol({ op: 'one' })}' vs n1='${keySol(n(1))}'`);
+  //
+  // ⚠️ 修正（task-69 Tester 变异审计触发的自查）：
+  //   原写法 `keySol({ op:'one' })` **硬编码字面量**，测的是 keySol 对 'one' op 的处理，
+  //   而非 solver 实际使用的 ONE_NODE。故把 ONE_NODE 定义改回缺陷写法
+  //   （{op:'num',card:1} ⇒ 键 n1 与牌面 1 碰撞）时，此断言**照样绿**，零鉴别力。
+  //   现改为断言【导出常量本身】，直接盯 L43 那个坑。
+  ck('ONE_NODE 键 ≠ 牌面 1 键（L43 键碰撞，盯导出常量非字面量）',
+     keySol(ONE_NODE) !== keySol(n(1)),
+     `keySol(ONE_NODE)='${keySol(ONE_NODE)}' vs n1='${keySol(n(1))}'`);
+  ck('ZERO_NODE 键 ≠ 牌面任意数键（同类碰撞防护）',
+     keySol(ZERO_NODE) !== keySol(n(1)) && keySol(ZERO_NODE) !== keySol(n(0)),
+     `keySol(ZERO_NODE)='${keySol(ZERO_NODE)}'`);
+  // ONE_NODE 必须真的是独立 op，不是伪装成 num 的 1
+  ck('ONE_NODE.op === "one"（独立 op，非 num 占位）', ONE_NODE.op === 'one',
+     `实际 op='${ONE_NODE.op}'`);
 }
 
 // ============================================================
