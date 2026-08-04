@@ -32,43 +32,64 @@
 //   不影响产品行为。为不影响结论的可移植性问题引入 worker 异步语义，不划算。
 // ===========================================================================
 
-const MIN_MAJOR = 22;
-const MIN_MINOR = 15;
-const [maj, min] = process.versions.node.split('.').map(Number);
-
-if (maj < MIN_MAJOR || (maj === MIN_MAJOR && min < MIN_MINOR)) {
-  console.error('');
-  console.error('='.repeat(78));
-  console.error('[esm-hooks] 🔴 Node 版本不满足要求，脚本无法运行');
-  console.error('='.repeat(78));
-  console.error(`  当前 Node : v${process.versions.node}`);
-  console.error(`  需要 Node : >= v${MIN_MAJOR}.${MIN_MINOR}.0`);
-  console.error('');
-  console.error('  原因：本基建依赖 module.registerHooks（同步 hooks API），');
-  console.error('        该 API 自 Node 22.15.0 起提供，更早版本仅有 module.register()');
-  console.error('        （异步 loader worker），二者不兼容。');
-  console.error('');
-  console.error('  影响：依赖本文件的 render-smoke.mjs / red1-tap-guard.mjs 均无法运行。');
-  console.error('        ⇒ 这两个门禁的结论只在 Node >= 22.15 上成立，请勿据低版本');
-  console.error('          运行失败推断产品缺陷 —— 产品代码 js/ 与 Node 版本无关。');
-  console.error('');
-  console.error('  处置：换用 Node >= 22.15 重跑（服务器默认 node 即 v24.x）。');
-  console.error('='.repeat(78));
-  process.exit(2);
-}
-
 // ── 运行环境自证（Manager 2026-08-04 12:34 立为团队规则）─────────────────
 //   规则：**无 Node 版本记录的门禁结果，视同未做双版本验证。**
-//   起因：task-69 三个门禁只在 Node 24 跑过，日志里连版本都没记 ⇒ 事后无从追溯。
-//   放在此处的理由：依赖本文件的门禁脚本（render-smoke / red1-tap-guard）**自动继承**，
-//   无需各自维护；且位置在版本断言之后 ⇒ 打印出来即代表已过门槛。
+//   ⚠️ 位置刻意放在【最前】：探测失败路径也必须能打印环境，便于取证。
+//      （13:04 修正：原先放在断言之后，一旦拦停就没有 [env] 行，取证反而缺证据。）
 //   ⚠️ 这里打印的是【工具链 Node 版本】，**不是小游戏运行时**。小游戏跑在 JSCore/V8，
 //      与 Node 无关；双版本全绿 ≠ 真机行为已覆盖，真机仍须项目主 GUI 复核。
 //      （Manager 12:34 纠正我此前「Node 18 更接近真实运行时」的错误表述）
 console.log(`[env] node=${process.version} platform=${process.platform}/${process.arch} pid=${process.pid}`);
 
-// ↓ 版本校验通过后才动态载入，避免链接期硬失败（静态 import 会绕过上面的断言）
-const { registerHooks } = await import('node:module');
+// ── 能力探测（13:04 由「版本号比较」改为「直接探测 API」）───────────────────
+//
+//   【为何不用版本号】Developer 补测了我与 Manager 都漏测的区间，查出真漏洞：
+//     官方文档 module.registerHooks(options) —— added in: v23.5.0, v22.15.0
+//     ⇒ 这是 **双线 backport**：22.15+ 有、23.5+ 有，但 **23.0–23.4 没有**。
+//     原条件 `maj < 22 || (maj === 22 && min < 15)` ⇒ **maj>=23 一律放行**
+//     ⇒ 在 23.0/23.1/23.2/23.3/23.4 上绕过断言 → registerHooks 为 undefined
+//     → 退回原始报错，我写的人话提示一行都不触发 —— **正是本次修复要消灭的场景**。
+//
+//   Tester 实测确认（node /tmp/provehole.mjs，直接验判定表达式）：
+//     23.0.0 ✅放行 / 23.4.0 ✅放行  ← 🔴 与「API 真实存在」不一致
+//
+//   【根因归类】版本号只是 API 存在性的**代理指标**，不是直接量。
+//     Developer 的提法：「这是被测对象，还是它的代理？」
+//     与我那三例自查（把观察说成性质）同源 ⇒ 合并为一句：**别把间接量当直接量。**
+//     代理指标一旦与真实量的映射关系变化（此处 = backport 打乱单调性），断言就失效。
+//     ⇒ 凡「能直接探测的能力」，一律直接探测；版本号只作参考信息打印，不参与判定。
+//
+//   ⚠️ 动态 import 不可改回静态：静态 import 在 ESM 链接阶段即失败，
+//      早于任何顶层代码执行 ⇒ 下面整段提示一行都跑不到（Tester 首版踩过）。
+const m = await import('node:module');
+
+if (typeof m.registerHooks !== 'function') {
+  console.error('');
+  console.error('='.repeat(78));
+  console.error('[esm-hooks] 🔴 当前 Node 缺少 module.registerHooks，脚本无法运行');
+  console.error('='.repeat(78));
+  console.error(`  当前 Node : v${process.versions.node}`);
+  console.error('  需要      : 提供 module.registerHooks 的版本');
+  console.error('              即 >= v22.15.0（22.x 线）或 >= v23.5.0（23.x 线）或 >= v24');
+  console.error('              ⚠️ 注意 23.0–23.4 **没有**此 API（该 API 为双线 backport，');
+  console.error('                 版本号大小并不单调对应 API 存在性）');
+  console.error('');
+  console.error('  原因：本基建依赖 module.registerHooks（同步 hooks API）。');
+  console.error('        更早/缺失版本仅有 module.register()（异步 loader worker），');
+  console.error('        二者语义不兼容，不能直接替换。');
+  console.error('');
+  console.error('  影响：依赖本文件的 render-smoke.mjs / red1-tap-guard.mjs 均无法运行。');
+  console.error('        ⇒ 这两个门禁的结论只在具备该 API 的 Node 上成立，请勿据本次');
+  console.error('          运行失败推断产品缺陷 —— 产品代码 js/ 与 Node 版本无关');
+  console.error('          （js/ 零 Node 专有 API 依赖：无 require / 无 node: / 无 process.*）。');
+  console.error('');
+  console.error('  处置：换用具备该 API 的 Node 重跑（服务器默认 node 即 v24.x）。');
+  console.error('='.repeat(78));
+  process.exit(2);
+}
+
+// ↓ 能力探测通过后才载入其余依赖
+const { registerHooks } = m;
 const { readFileSync } = await import('node:fs');
 const { fileURLToPath, pathToFileURL } = await import('node:url');
 const path = (await import('node:path')).default;
