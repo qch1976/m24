@@ -61,6 +61,18 @@ console.log(`[env] node=${process.version} platform=${process.platform}/${proces
 //
 //   ⚠️ 动态 import 不可改回静态：静态 import 在 ESM 链接阶段即失败，
 //      早于任何顶层代码执行 ⇒ 下面整段提示一行都跑不到（Tester 首版踩过）。
+//   ⚠️⚠️ 【这段文案在什么情况下印不出来 —— 必读，否则会误判】
+//   本文件的任何 console 输出都要求「文件已被 Node 载入」。以下两种情形【印不出来】：
+//     (a) Node < 18.18：`--import` 本身是 unknown flag（`--import` 也是双线 backport，
+//         added in v19.0.0 / v18.18.0）⇒ Node 在解析命令行阶段就退出，
+//         报 `node: bad option: --import`、**exit=9**，JS 压根未进入。
+//         Manager 实测旁证：脚本里的 console.log 在未知 flag 下 **输出 0 次**。
+//     (b) 静态 import 链接失败：早于任何顶层代码（Tester 首版踩过，见上）。
+//   ⇒ 所以上面那行「若你看到 bad option: --import」**不会在 <18.18 上自动弹出**。
+//      它真正的读者是【事后翻这个文件排查的人】—— 别指望它自动提示。
+//   ⇒ 团队规则（Manager 采纳 Tester 提法）：**当探测本身依赖某个前置能力时，
+//      那一层只能靠文案兜底、不能靠判定 —— 因为判定代码在那种环境下不会被执行到。**
+//      「探测也有地板，地板下面只能留话。」再加判定会重犯代理指标错，且同样印不出来。
 const m = await import('node:module');
 
 if (typeof m.registerHooks !== 'function') {
@@ -84,6 +96,10 @@ if (typeof m.registerHooks !== 'function') {
   console.error('          （js/ 零 Node 专有 API 依赖：无 require / 无 node: / 无 process.*）。');
   console.error('');
   console.error('  处置：换用具备该 API 的 Node 重跑（服务器默认 node 即 v24.x）。');
+  console.error('');
+  console.error('  ⚠️ 另一种情形：若你看到的是 `node: bad option: --import`（退出码 9）');
+  console.error('     而【不是】本段提示，说明你的 Node < 18.18 —— 连 `--import` 都不认，');
+  console.error('     JS 压根没被执行。处置相同：换 Node >= 22.15。');
   console.error('='.repeat(78));
   process.exit(2);
 }
