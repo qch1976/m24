@@ -76,6 +76,44 @@ console.log(`PAGE = ${JSON.stringify(PAGE)}`);
 console.log();
 
 // ===========================================================================
+// 第零部分：探测被测代码的 P0 状态 —— 双向门禁的基础
+// ===========================================================================
+//
+// 【为何需要这一步 · Developer 2026-08-04 交叉验证发现，Manager 升为团队规则】
+//   我第一版把「必须匹配 /dealtOk/」写死在反向断言里，导致：
+//     · 未修的 2dbf3df → 22/22 全绿
+//     · 加 1 行修复后  → 20/2  ← 两条反向断言转红
+//   这个门禁一旦随 P0 修复入库，会**长期挂 2 红**，后人接手必然误判成回归，
+//   甚至可能"修"掉正确代码。带永久红灯的门禁等于自废。
+//
+//   Developer 把这归为他上轮「注释污染计数型断言」的**镜像问题**，我认同：
+//     他那次是「断言被无关文字刷绿」，我这次是「断言被正确修复刷红」，
+//     同一病根 —— **断言本身没有被验证过**。
+//
+// 【解法】不在每条断言里硬写极性，而是**先探测一次被测代码状态**，
+//   全脚本据此翻转期望值。P0_FIXED=false 时验"必崩"，=true 时验"必不崩"，
+//   两种状态下都不留假红假绿。
+//
+const P0_FIXED = (() => {
+  // 用最小成本探一帧：默认态（IDLE/CLOSED）必经 L467
+  const r = renderOnce(PAGE.TABLE, null, null);
+  return !(r.err instanceof ReferenceError && /dealtOk/.test(r.err.message || ''));
+})();
+
+// 期望"命中 P0 崩溃"的断言统一走这里：
+//   未修 → 要求抛 ReferenceError(dealtOk)
+//   已修 → 要求不抛（极性自动反转）
+const expectP0 = (err) => {
+  const hit = /dealtOk/.test(err?.message || '');
+  return P0_FIXED ? err === null : hit;
+};
+// 期望"不命中 P0"的断言（如 areaOpen 分支）：两种状态下都要求不出现 dealtOk
+const expectNoP0 = (err) => !/dealtOk/.test(err?.message || '');
+
+console.log(`【被测状态】P0(dealtOk) ${P0_FIXED ? '已修复 ✅ → 断言极性=期望不崩' : '未修复 🔴 → 断言极性=期望必崩'}`);
+console.log(`            双向门禁：修前跑全绿、修后跑全绿，两态均无假红假绿\n`);
+
+// ===========================================================================
 // 第一部分：驱动矩阵 5 格（Manager 指定）
 // ===========================================================================
 console.log('【矩阵】牌桌页 5 格状态驱动');
@@ -108,8 +146,8 @@ console.log('\n  · 格2  dealState=DEALING  areaState=CLOSED');
     if (typeof pr._dealStartAt !== 'undefined') pr._dealStartAt = Date.now();
   });
   console.log(`       phase=${r.phase}   ${label(r)}`);
-  ck('格2 DEALING 态渲染无抛错（除已知 P0 外）',
-     r.err === null || /dealtOk/.test(r.err.message || ''), label(r));
+  ck(P0_FIXED ? '格2 DEALING 态渲染无抛错' : '格2 DEALING 态命中已知 P0（无其他异常）',
+     expectP0(r.err), label(r));
 }
 
 // --- 格 3：DONE / CLOSED ---
@@ -117,8 +155,8 @@ console.log('\n  · 格3  dealState=DONE  areaState=CLOSED（已发牌，答题�
 {
   const r = renderOnce(PAGE.TABLE, null, (pr) => { pr.dealState = 'DONE'; });
   console.log(`       phase=${r.phase}   ${label(r)}`);
-  ck('格3 DONE/CLOSED 渲染无抛错（除已知 P0 外）',
-     r.err === null || /dealtOk/.test(r.err.message || ''), label(r));
+  ck(P0_FIXED ? '格3 DONE/CLOSED 渲染无抛错' : '格3 DONE/CLOSED 命中已知 P0（无其他异常）',
+     expectP0(r.err), label(r));
 }
 
 // --- 格 4：DONE / OPEN ---
@@ -174,16 +212,19 @@ console.log('\n【触发条件】崩溃与 dealState 无关，唯一条件 = are
   const closedResults = ['IDLE', 'DEALING', 'DONE'].map((ds) => ({
     ds, r: renderOnce(PAGE.TABLE, null, (pr) => { pr.dealState = ds; }),
   }));
-  const allClosedCrash = closedResults.every((x) => /dealtOk/.test(x.r.err?.message || ''));
-  ck('areaClosed=true 时 IDLE/DEALING/DONE 三态**全部**崩溃 → 崩溃与 dealState 无关',
-     allClosedCrash, closedResults.map((x) => `${x.ds}:${x.r.err ? 'crash' : 'ok'}`).join(' '));
+  // 【双向】未修：三态应全崩；已修：三态应全不崩。无论哪种，结论都是"与 dealState 无关"
+  const allClosedSame = closedResults.every((x) => expectP0(x.r.err));
+  ck(P0_FIXED
+       ? 'areaClosed=true 时 IDLE/DEALING/DONE 三态**均不**崩溃（P0 已修）→ 仍证明与 dealState 无关'
+       : 'areaClosed=true 时 IDLE/DEALING/DONE 三态**全部**崩溃 → 崩溃与 dealState 无关',
+     allClosedSame, closedResults.map((x) => `${x.ds}:${x.r.err ? 'crash' : 'ok'}`).join(' '));
 
   // 【反向用例】areaClosed=false → 不进 if 分支 → 不崩。证明我定位的条件是充要的
   const openResults = ['IDLE', 'DEALING', 'DONE'].map((ds) => {
     const r = renderOnce(PAGE.TABLE, null, (pr) => { pr.dealState = ds; openArea(pr); });
     return { ds, r };
   });
-  const noneOpenCrash = openResults.every((x) => !/dealtOk/.test(x.r.err?.message || ''));
+  const noneOpenCrash = openResults.every((x) => expectNoP0(x.r.err));
   ck('【反向】areaClosed=false 时三态**均不**崩溃 → 证实 areaClosed 是充要触发条件',
      noneOpenCrash, openResults.map((x) => `${x.ds}:${x.r.err ? 'crash' : 'ok'}`).join(' '));
 
@@ -227,9 +268,12 @@ console.log('\n【触发条件】崩溃与 dealState 无关，唯一条件 = are
     } catch (e) { err = e; }
     return { err, frames, ctx, phase: 'render' };
   })();
-  ck('展开后收起（滑出动画走完，跨 2 帧）→ 再次崩溃（非一次性，用户无法自救）',
-     /dealtOk/.test(reclose.err?.message || ''),
-     `第 ${reclose.frames + 1} 帧崩溃 | ${label(reclose)}`);
+  ck(P0_FIXED
+       ? '展开后收起（跨 2 帧）渲染正常（P0 已修 → 用户可反复开合，无崩溃）'
+       : '展开后收起（滑出动画走完，跨 2 帧）→ 再次崩溃（非一次性，用户无法自救）',
+     expectP0(reclose.err),
+     P0_FIXED ? `2 帧均正常 | ${label(reclose)}`
+              : `第 ${reclose.frames + 1} 帧崩溃 | ${label(reclose)}`);
 
   // 并补一条：收起动画进行中（CLOSING，220ms 窗口内）不崩 —— 证明危害窗口的精确边界
   const during = renderOnce(PAGE.TABLE, null, (pr) => {
@@ -309,7 +353,9 @@ if (fail > 0) {
 }
 const p0Reproduced = results.some((r) => /复现 P0/.test(r.name) && r.ok);
 console.log(p0Reproduced
-  ? '🔴 结论：本基建在当前 HEAD 上成功复现 P0（dealtOk）→ 自证条件满足，基建有效'
+  ? (P0_FIXED
+      ? '✅ 结论：P0(dealtOk) 已修复，全部断言在"已修"极性下通过 → 门禁绿灯，可安全入库'
+      : '🔴 结论：本基建在当前 HEAD 上成功复现 P0（dealtOk）→ 自证条件满足，基建有效')
   : '✅ 结论：牌桌页 5 格 + 3 页全部渲染通过（若 P0 已修，此为预期结果）');
 console.log('='.repeat(78));
 process.exit(0);
