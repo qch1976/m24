@@ -12,3 +12,15 @@
 /_*.log
 /_*.tmp
 /_*.mjs
+
+# 根目录运行产物（不带下划线前缀的 selftest/bench 输出）
+# 依据：task-64 经理裁定 2026-08-04 —— 原 /_*.log 要求下划线前缀，
+#   导致 selftest_input05_*.log / sim-pack-after.log 漏网被 commit。
+# ⚠️ 刻意用根目录锚定 + selftest/ 定向，禁用全局 *.log：
+#   全局会误伤 sub-folder 下有意保留的日志（当前无，但规则要防未来）。
+/*.log
+/out-bench-*.json
+tools/verify/out-bench-*.json
+
+# selftest/ 目录运行产物（该目录下 .log 均为脚本输出，无有意保留项）
+selftest/*.log

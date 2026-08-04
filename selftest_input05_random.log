@@ -1,8 +1,0 @@
-[selftest_input05_random] R-03 200 次采样: solved=145 unsolved=55
-  无解率 = 27.50%
-  10000 次分布: mean=740.7 min=693 max=801
-  R-03 有解出现: ✓
-  R-03 无解出现: ✓
-  R-03 无解率 15%~45%: ✓ (27.50%)
-  R-03 uniform 分布: ✓
-PASS
