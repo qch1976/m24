@@ -9,7 +9,17 @@
 // 【双向极性】自动探测方案 B 是否已落地，修前/修后都应全绿（团队规则第 8 条）。
 // 【双环境】显式 { format:'module' }，不依赖 Node 版本推断（团队规则第 9 条 / 第 6 条）。
 //
-// 运行：node --experimental-loader ./tools/verify/p0-loader.mjs tools/verify/red1-guard-path.mjs
+// 运行（在项目根目录执行）：
+//     node --import ./tester/render-smoke/esm-hooks.mjs tools/verify/red1-guard-path.mjs
+//
+// ⚠️ 本文件【不能裸跑】。产品代码 js/ 用的是 extensionless import（如 './Components'），
+//    且 .js 后缀需被当作 ESM 加载 —— 这两件事都由 esm-hooks.mjs 注册的 hooks 完成。
+//    裸跑会失败，且报错形式因平台而异（Linux 多为 ERR_MODULE_NOT_FOUND，
+//    Windows 可能因 CJS 回退而报 SyntaxError: Cannot use import statement outside a module）
+//    —— 两者都【不是产品缺陷】，只是缺 hooks。下方已加兜底：裸跑时会直接打印可执行命令行。
+//
+// 注：原注释写的 `--experimental-loader ./tools/verify/p0-loader.mjs` 已失效，
+//    该文件不存在（2026-08-05 task-72 核实：tools/verify/ 下无 p0-loader.mjs）。
 
 import { createRequire } from 'node:module';
 
@@ -42,7 +52,48 @@ globalThis.cancelAnimationFrame = () => {};
 if (!globalThis.Image) globalThis.Image = class { set src(_v) {} };
 
 // ---------- 真实产品模块 ----------
-const PageRenderer = (await import('../../js/ui/PageRenderer.js')).default;
+// ---------- 缺 hooks 兜底：打印可直接执行的完整命令行 ----------
+//
+// ⚠️⚠️ 【这段兜底在什么情况下印不出来 —— 必读，规则 19：探测也有地板】
+//   本段是【运行时】catch，要求本文件已被 Node 成功载入并执行到这里。以下情形印不出来：
+//     (a) 把下面的 await import 改回【静态】 import ⇒ 链接阶段就失败，早于任何顶层代码，
+//         catch 根本不会执行（task-69 已实证踩坑）。故此处必须保持动态 import。
+//     (b) Node < 18.18：`--import` 是 unknown flag，Node 在命令行解析阶段退出
+//         （`node: bad option: --import`，exit=9），JS 压根未进入。
+//     (c) esm-hooks.mjs 自身因缺 module.registerHooks 而 exit(2) ⇒ 由它自己打印提示。
+//   ⇒ 所以这段兜底【不是万能防护】。真正兜住的是最常见的一种：忘记加 --import 而裸跑。
+//      其余情形的读者是【事后翻这个文件排查的人】—— 别指望它自动弹出。
+const HOOKS_CMD = 'node --import ./tester/render-smoke/esm-hooks.mjs tools/verify/red1-guard-path.mjs';
+let PageRenderer;
+try {
+  PageRenderer = (await import('../../js/ui/PageRenderer.js')).default;
+} catch (e) {
+  const code = (e && e.code) || '';
+  const msg = String((e && e.message) || e);
+  // 判据覆盖两种平台表现：Linux 的 ERR_MODULE_NOT_FOUND / Windows 的 CJS 回退 SyntaxError
+  const isHooksMissing =
+    code === 'ERR_MODULE_NOT_FOUND' ||
+    code === 'ERR_UNKNOWN_FILE_EXTENSION' ||
+    /Cannot use import statement outside a module/.test(msg) ||
+    /Failed to load the ES module/.test(msg);
+  if (!isHooksMissing) throw e;   // 真异常原样抛出，不被兜底吞掉（极性 C 已实测）
+  console.error('');
+  console.error('='.repeat(78));
+  console.error('[red1-guard-path] 🔴 本门禁必须挂 ESM hooks 运行，不能裸跑');
+  console.error('='.repeat(78));
+  console.error('  ✅ 直接复制这一行执行（在项目根目录）：');
+  console.error('');
+  console.error('     ' + HOOKS_CMD);
+  console.error('');
+  console.error('  原因：产品代码 js/ 使用 extensionless import（如 \'./Components\'），');
+  console.error('        且 .js 需按 ESM 加载；二者均由 esm-hooks.mjs 的 hooks 提供。');
+  console.error('  ⚠️ 这【不是产品缺陷】—— 请勿据此报 js/ 有问题。');
+  console.error('');
+  console.error('  当前环境 : node=' + process.version + ' cwd=' + process.cwd());
+  console.error('  原始报错 : ' + (code ? code + ' ' : '') + msg.split('\n')[0]);
+  console.error('='.repeat(78));
+  process.exit(2);
+}
 
 // ---------- 断言基建 ----------
 let pass = 0, fail = 0;
