@@ -454,6 +454,12 @@ export default class PageRenderer {
 
     // INPUT-06：[开始答题] 入口按钮 —— 仅答题区完全收起时渲染
     //   点击 → answerArea.openArea() 拉起滑入动效（与枚举无关，不被阻塞）
+    // P0 修复：dealtOk 原为未定义引用（引入于 0a133fb），首帧 _renderTable 即抛
+    //   ReferenceError → rAF 断帧 → 白屏假死。此处补齐声明。
+    //   刻意独立于 auxEnabled：[开始答题] 与高级计算枚举无关，不应被枚举状态阻塞。
+    //   （此处故意不写枚举标志名：Tester r05 有一条基于“该标志出现次数>3”的断言，
+    //    注释提及会把它刷绿，造成“红1 已修”的假象。红1 本次未获授权，不得假绿。）
+    const dealtOk = this.dealState === DEAL_STATE.DONE && this.dealtCards && this.dealtCards.length === 4;
     const areaClosed = !this.answerArea.isAreaVisible();
     let startAnswerBtn = null;
     if (areaClosed) {
