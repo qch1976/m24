@@ -17,6 +17,12 @@
  *
  * 用法: node tester/render-smoke/t69-dedup-verify.mjs
  */
+// ── 运行环境自证（Manager 2026-08-04 12:34 立为团队规则）─────────────────
+//   **无 Node 版本记录的门禁结果，视同未做双版本验证。**
+//   本脚本不依赖 esm-hooks.mjs（直接 import .mjs，无需 hooks），故须自带此行。
+//   ⚠️ 打印的是【工具链 Node 版本】，非小游戏运行时（JSCore/V8）；双版本绿 ≠ 真机已覆盖。
+console.log(`[env] node=${process.version} platform=${process.platform}/${process.arch} pid=${process.pid}`);
+
 import RS from '../../js/core/RecipSolver.mjs';
 // ★ numLeaf / recipLeaf / ONE_NODE 不在 default export（L442-460）里，只有具名导出
 //   ⇒ 必须具名 import。此处踩过一次：从 default 取得 undefined，keySol(undefined) 崩在 L274。
