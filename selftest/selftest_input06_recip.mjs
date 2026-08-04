@@ -100,38 +100,38 @@ console.log('\n' + '='.repeat(70));
 console.log('R-11④ 有效倒数解基准 + R-11⑤ 恒 0 正例');
 console.log('='.repeat(70));
 // ================================================================
-// ⚠️⚠️ R-11④ 数值断言已全组降级为「仅打印观测值」，不判红灯 ⚠️⚠️
-// 依据：Manager 2026-08-04 00:57 裁定（task-63 feedback）
+// ============ R-11④ 数值断言：已恢复为硬断言（task-68）============
+// 依据：项目主 2026-08-04 10:49 四项去重口径裁定（全 A）
+//       + task-67 「171-INPUT06-去重口径规范-定稿.md」§6 全量基准
 //
-// 原因：下列旧期望值（48/34/30/17/16/10/5/3）源自 08-03 23:04 规范，
-// 已被证伪 —— Architect 与 Manager 各自修掉实现缺陷后独立得出的当前
-// 正确值为：[1,2,3,4]=16(宽口径→6)、[2,3,4,6]=14、[1,3,4,6]=9、
-// [3,3,8,8]=7、[1,2,5,10]=1、[1,1,3,8]=10(巧合相同)。
-// Architect 已于 00:40 撤回原批数值（两侧共享同一盲点：拉平后不归一
-// multiset / 未消恒等元，故此前「双方同值」属假互证，不构成背书）。
+// 历史：09efb3d 曾将本组 8 个硬断言降为「仅打印观测值」，因当时旧期望值
+//       （48/34/30/17/16/10/5/3）已被证伪且新口径未裁定 —— 让 selftest 绿在
+//       错误答案上比红灯更危险。现数字有**权威来源**（task-67 规范 §6，
+//       且与 INPUT-05 线上已验收 solver 12/14 外部互证），故恢复硬断言。
 //
-// 未决项不是单一计数口径，而是【三分类去重键语义共 4 项裁定】，
-// 会整体改变全部数值。待 4 项裁定下达后连同 RecipSolver.js 键混用
-// bug（L300 原式键 / L303 归约式键）一次性返工，届时恢复为红灯断言。
-//
-// 此处刻意不写期望值：让 selftest 绿在错误答案上，比红灯更危险。
+// 双列断言（初级 primary / 高级 advanced），不再只盯 advanced。
+// 完整双向判据（正向 12 组等价类 + 反向 7 组防过度合并）见
+// selftest/selftest_input06_dedup.mjs；外部第三方判据见
+// tools/verify/verify-task68-external.mjs。
 // ================================================================
-const OBSERVE = [[1, 2, 3, 4], [2, 3, 4, 6], [1, 3, 4, 6], [3, 3, 8, 8],
-                 [1, 2, 5, 10], [1, 1, 3, 8], [1, 4, 6, 8], [2, 4, 5, 8],
-                 [1, 5, 5, 5]];
-console.log('  R-11④ 观测值（待 4 项去重键裁定，不判红灯）：');
-for (const deck of OBSERVE) {
+const BASE = [
+  // [cards, primary, advanced] —— 规范 §6 全量基准表
+  [[1, 2, 3, 4], 3, 4], [[2, 3, 4, 6], 10, 10], [[1, 3, 4, 6], 1, 4],
+  [[3, 3, 8, 8], 1, 7], [[1, 2, 5, 10], 2, 1], [[1, 1, 3, 8], 1, 0],
+  [[1, 4, 6, 8], 3, 1], [[2, 4, 5, 8], 7, 3], [[1, 5, 5, 5], 1, 1],
+];
+for (const [deck, ep, ea] of BASE) {
   const res = solve(deck);
-  console.log(`  ??  ${JSON.stringify(deck).padEnd(14)} advanced=${String(res.counts.advanced).padEnd(4)}`
-    + ` P=${res.counts.primary} C=${res.counts.cancelled}`);
+  ck(`${JSON.stringify(deck).padEnd(14)} 初级=${ep} 高级=${ea}`,
+     res.counts.primary === ep && res.counts.advanced === ea,
+     `实测 P=${res.counts.primary} A=${res.counts.advanced} rawCancel=${res.counts.cancelledRaw}`);
 }
 const ZERO = [[5, 5, 5, 5], [1, 1, 2, 9], [3, 3, 7, 7], [4, 4, 7, 7], [3, 3, 3, 5]];
 for (const deck of ZERO) {
   const res = solve(deck);
   ck(`${JSON.stringify(deck).padEnd(14)} advanced=0 且不报错`, res.counts.advanced === 0,
-     `P=${res.counts.primary} C=${res.counts.cancelled}`);
+     `P=${res.counts.primary} rawCancel=${res.counts.cancelledRaw}`);
 }
-// 注：[1,5,5,5] 已并入上方 OBSERVE 组统一观测，此处不再单列。
 
 console.log('\n' + '='.repeat(70));
 console.log('§1.4 排序确定性（3 级全序）');

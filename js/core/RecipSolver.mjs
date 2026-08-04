@@ -59,14 +59,28 @@ export function recipLeaf(card, slot) {
 // ★ 方案 §4.7：arg.card === 1 的 recip（即 1/1）一律跳过 —— 1/1 恒等，
 //   不得使表达式被判定为"用了高级符号"（R-04.1）
 export function countRecip(t) {
-  if (!t || t.op === 'num') return 0;
+  if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
   if (t.op === 'recip') return t.arg && t.arg.card === 1 ? 0 : 1;
   return countRecip(t.a) + countRecip(t.b);
 }
 
+// ============ 归约产生的恒等元节点（规范 §1 节点表）============
+// ★ 必须用独立 op：早期实现用 {op:'num',card:1} 作空分子占位，与牌面的 1 键值相同，
+//   导致 (5-((1/5)/1))*5 与 (5-(1/5))*5 被判 2 条解。规范 L43 已记录该缺陷。
+export const ONE_NODE = { op: 'one' };
+export const ZERO_NODE = { op: 'zero' };
+
+// 恒等因子判定（乘除链）：牌面的 1 与归约产生的 ONE 都是乘法恒等元
+function isIdentFactor(x) {
+  return (x.op === 'num' && x.card === 1) || x.op === 'one';
+}
+const isZeroTerm = (x) => x.op === 'zero';
+
 // 渲染：倒数用 (1/c)，乘除用 * /（内部串）；显示层用 renderDisplay
 export function render(t) {
   if (t.op === 'num') return String(t.card);
+  if (t.op === 'one') return '1';
+  if (t.op === 'zero') return '0';
   if (t.op === 'recip') return `(1/${t.arg.card})`;
   return `(${render(t.a)}${t.op}${render(t.b)})`;
 }
@@ -74,6 +88,8 @@ export function render(t) {
 // 显示层：× ÷ 替换，倒数保持 1/c 形态（与 §5.1 countAdvSymbols 的 "(1/" 计数口径一致）
 export function renderDisplay(t) {
   if (t.op === 'num') return String(t.card);
+  if (t.op === 'one') return '1';
+  if (t.op === 'zero') return '0';
   if (t.op === 'recip') return `(1/${t.arg.card})`;
   const op = t.op === '*' ? '×' : t.op === '/' ? '÷' : t.op;
   return `(${renderDisplay(t.a)}${op}${renderDisplay(t.b)})`;
@@ -83,6 +99,8 @@ export function renderDisplay(t) {
 export function evalNode(t) {
   if (!t) return null;
   if (t.op === 'num') return F(t.card);
+  if (t.op === 'one') return F(1n);
+  if (t.op === 'zero') return F(0n);
   if (t.op === 'recip') return t.arg.card === 0 ? null : F(1, t.arg.card);
   const a = evalNode(t.a);
   const b = evalNode(t.b);
@@ -117,26 +135,88 @@ function flattenMulDiv(node, numList, denList) {
 }
 
 function rebuildChain(numList, denList) {
-  const ONE = { op: 'num', v: F(1), card: 1, slot: -1 };
-  let acc = numList.length
-    ? numList.reduce((x, y) => ({ op: '*', a: x, b: y }))
-    : ONE;
-  for (const d of denList) acc = { op: '/', a: acc, b: d };
+  // ★ R4（规范 L87-100）：消恒等元 + 两表排序归一
+  //   排序是根因修法：不排序则 24/3/4 与 24/4/3、(1/3)/4 与 (1/4)/3 会分裂成 2 条。
+  //   早期误诊为「空分子特例」，实测分子非空时同样错分，故必须对两表排序。
+  //   消恒等元是裁定②：filter(¬isIdent) 实现 (1*2)/X ≡ 2/X。
+  const N = numList.filter((x) => !isIdentFactor(x))
+    .sort((x, y) => (keySol(x) < keySol(y) ? -1 : keySol(x) > keySol(y) ? 1 : 0));
+  const D = denList.filter((x) => !isIdentFactor(x))
+    .sort((x, y) => (keySol(x) < keySol(y) ? -1 : keySol(x) > keySol(y) ? 1 : 0));
+  let acc = N.length ? N.reduce((x, y) => ({ op: '*', a: x, b: y })) : ONE_NODE;
+  for (const d of D) acc = { op: '/', a: acc, b: d };
+  return acc;
+}
+
+// ============ R3 加减链拉平（裁定③，规范 L76-85）============
+// ★ 遇 * / 停止下钻，对子树递归；右子树遇 '-' 整体反号
+// 为何必须有：3/((1+(1/8))-1) 中两个牌面 1 相互抵消，倒数是「假用」，
+// 归约后等于 3*8，属初级解重复书写。不拉平则误判为 advanced。
+function flattenAddSub(node, terms, sign) {
+  if (node.op === '+') {
+    flattenAddSub(node.a, terms, sign);
+    flattenAddSub(node.b, terms, sign);
+    return;
+  }
+  if (node.op === '-') {
+    flattenAddSub(node.a, terms, sign);
+    flattenAddSub(node.b, terms, -sign); // ★ 右子树整体反号
+    return;
+  }
+  terms.push({ node, sign });
+}
+
+// ============ R5 加减链重建（同项抵消 + 消零 + 排序归一，规范 L102-129）============
+// 同时实现三条恒等律：同项抵消 (24+5)-5≡243、加法交换、减法分配
+function rebuildAddSub(terms) {
+  // 1) 同 key 归桶，累加符号
+  const bucket = new Map();
+  for (const { node, sign } of terms) {
+    const k = keySol(node);
+    const cur = bucket.get(k);
+    if (cur) cur.net += sign;
+    else bucket.set(k, { node, net: sign });
+  }
+  // 2) 同项抵消（裁定③核心）：net=0 → 整项消失
+  const pos = [];
+  const neg = [];
+  for (const { node, net } of bucket.values()) {
+    if (net === 0) continue; // ★ +c -c 抵消
+    const bag = net > 0 ? pos : neg;
+    for (let i = 0; i < Math.abs(net); i++) bag.push(node);
+  }
+  // 3) 消零项：+0 / -0 无意义
+  const P = pos.filter((x) => !isZeroTerm(x));
+  const Ng = neg.filter((x) => !isZeroTerm(x));
+  if (P.length === 0 && Ng.length === 0) return ZERO_NODE;
+  // 4) 排序归一后重建
+  const cmp = (x, y) => (keySol(x) < keySol(y) ? -1 : keySol(x) > keySol(y) ? 1 : 0);
+  P.sort(cmp);
+  Ng.sort(cmp);
+  let acc = P.length ? P.reduce((x, y) => ({ op: '+', a: x, b: y })) : ZERO_NODE;
+  for (const q of Ng) acc = { op: '-', a: acc, b: q };
   return acc;
 }
 
 export function reduceOnce(node) {
-  if (node.op === 'num' || node.op === 'recip') {
+  if (node.op === 'num' || node.op === 'recip' || node.op === 'one' || node.op === 'zero') {
     return { node, changed: false };
   }
   if (node.op === '+' || node.op === '-') {
-    // ★ 遇加减停止拉平，对左右子树递归（方案 §2.3）
-    const ra = reduceOnce(node.a);
-    const rb = reduceOnce(node.b);
-    return {
-      node: { op: node.op, a: ra.node, b: rb.node },
-      changed: ra.changed || rb.changed,
-    };
+    // ★ R3+R5（裁定③）：拉平加减链 → 子项递归 → 同项抵消/消零/排序重建
+    //   旧实现只递归左右子树、不拉平，故 (24+5)-5 不会归约为 24。
+    const terms = [];
+    flattenAddSub(node, terms, 1);
+    let childChanged = false;
+    const reduced = terms.map(({ node: t, sign }) => {
+      const r = reduceOnce(t);
+      if (r.changed) childChanged = true;
+      return { node: r.node, sign };
+    });
+    const out = rebuildAddSub(reduced);
+    // changed 用 keySol 比对（规范 R6），与去重口径一致，避免无限迭代
+    const changed = childChanged || keySol(out) !== keySol(node);
+    return { node: out, changed };
   }
   // node.op ∈ {*, /}：极大乘除链
   const numList = [];
@@ -155,7 +235,7 @@ export function reduceOnce(node) {
     else outDen.push(f);
   }
 
-  // ★ 链内的加减子树需递归归约（方案 §2.4 边界 B3）
+  // ★ 链内的加减子树需递归归约（规范 R6）
   const recurseList = (arr) => arr.map((f) => {
     if (f.op === '+' || f.op === '-') {
       const r = reduceOnce(f);
@@ -165,7 +245,10 @@ export function reduceOnce(node) {
     return f;
   });
 
-  return { node: rebuildChain(recurseList(outNum), recurseList(outDen)), changed };
+  const out = rebuildChain(recurseList(outNum), recurseList(outDen));
+  // ★ 用 keySol 比对补捕「排序/消恒等元」带来的变化，否则 (1*2)/X 不会被标 changed
+  if (keySol(out) !== keySol(node)) changed = true;
+  return { node: out, changed };
 }
 
 // MAX_ITER：§7 风险 8 迭代上限保护（理论上界 5，实测 ≤3）
@@ -186,6 +269,13 @@ export function reduceToFixpoint(node) {
 // 二元交换律归一（+ * 两操作数按确定性序）+ 全括号 ⇒ 冗余括号天然消除
 // ⚠️ 禁止复用 Solver.toCanonicalKeyV2（会把 [1,2,3,4] 的 52 条初级解压成 3 条）
 export function keySol(t) {
+  // ★ R1 规则 1（规范 L52）：倒数两种书写形态归一
+  //   (1/5)/1 归约后为 ONE/n5，必须与直接 recip(5) 同键
+  if (t.op === '/' && t.a && t.a.op === 'one' && t.b && t.b.op === 'num') {
+    return 'r' + t.b.card;
+  }
+  if (t.op === 'one') return 'ONE';
+  if (t.op === 'zero') return 'ZERO';
   if (t.op === 'num') return 'n' + t.card;
   if (t.op === 'recip') return 'r' + t.arg.card; // 与整数叶子不同前缀，禁止混淆
   const ka = keySol(t.a);
@@ -281,7 +371,7 @@ export const DISPLAY_LIMIT = 10;
 export function solve(cards) {
   const primary = new Map();
   const advanced = new Map();
-  const cancelled = new Map();
+  let cancelledRaw = 0; // ★ 计数器，非去重集合（规范 §4）
   let rawHits = 0;
   let maxIters = 0;
   let overflowCount = 0;
@@ -293,17 +383,18 @@ export function solve(cards) {
       const rr = reduceToFixpoint(node);
       if (rr.iters > maxIters) maxIters = rr.iters;
       if (rr.overflow) overflowCount += 1;
-      // ★★ usedRecip 必须在归约之后判定（§7 风险 9 / R-04.3）
+      // ★★ usedRecip 必须在归约之后判定（规范 R9 硬约束）
       const usedRecip = countRecip(rr.node) > 0;
       const hadRecip = countRecip(node) > 0;
+      // ★★ 裁定①：三分区统一用**归约式键**。
+      //   旧实现 advanced/primary 用 keySol(node)（原式键）、cancelled 用 keySol(rr.node)（归约式键），
+      //   两套键混用 ⇒ 同一条解在不同桶里键空间不一致，此为 task-68 要修的根因。
+      const k = keySol(rr.node);
       if (usedRecip) {
-        const k = keySol(node);
         if (!advanced.has(k)) advanced.set(k, renderDisplay(node));
-      } else if (hadRecip) {
-        const k = keySol(rr.node);
-        if (!cancelled.has(k)) cancelled.set(k, renderDisplay(node));
       } else {
-        const k = keySol(node);
+        // 裁定④：初级解同样用归约式键去重
+        if (hadRecip) cancelledRaw += 1; // ★ rawHits 级诊断计数，不去重、不作门禁
         if (!primary.has(k)) primary.set(k, renderDisplay(node));
       }
     });
@@ -312,21 +403,20 @@ export function solve(cards) {
   // §1.2.3 尾句：无效倒数解若其归约式与某条已有初级解规范形式相同则直接丢弃
   // ⚠️ 口径说明（Developer 实测确认）：
   //   cancelledTotal = 归约后判为可消去的去重解总数（= §8 参考数据「被剔除」列口径，
-  //                    Architect lib-input06-recip.mjs 未执行本删除步，故其复现值即此数）
-  //   cancelled(Map) = 执行 §1.2.3 尾句删除后的残余（其归约式未与任何初级解重合者）
-  //   R-11② 要求 (8-4)*6 与 (8-4)/(1/6) 归并为 1 条 → 依赖本删除步，故必须执行
-  const cancelledTotal = cancelled.size;
-  for (const k of primary.keys()) cancelled.delete(k);
+  // ============ cancelled 口径变更（规范 §4）============
+  // 统一归约式键后，「可消去解」必与某条初级解同键，若按键去重则该列恒为 0
+  // （数学上正确：它们本就等价于初级解）。为保留诊断价值，改为 rawHits 级原始条数。
+  // 用途：衡量倒数枚举的「无效功」比例，供 R-05 性能优化参考。
+  // **不作面板展示数字，不作门禁红灯依据。**
 
   return {
     primary,
     advanced,
-    cancelled,
+    cancelledRaw,
     counts: {
       primary: primary.size,
       advanced: advanced.size,
-      cancelled: cancelledTotal,
-      cancelledResidual: cancelled.size,
+      cancelledRaw,
     },
     maxIters,
     rawHits,
