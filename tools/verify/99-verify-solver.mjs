@@ -69,9 +69,18 @@ for (const d of decks20) {
   if (s.length > 0) t10_ok++;
   else t10_fail.push(d);
 }
-const t10_pass = t10_fail.length === 0;
-console.log(`  ${t10_pass ? '✅' : '❌'} T-10  20 副中可解 = ${t10_ok}/20`);
+// —— task-75(a) 修正期望值：原写「20 副全可解」，但 [2,7,11,13] 经双证确实无 24 解 ——
+//    证据：线上 js/core/Solver.mjs findSolutionsWithAST 解数 = 0；
+//    另写独立穷举（4! 全排列 × 4 运算符^3 × 5 种括号形态）亦为 0。
+//    ⇒ 原期望值错，非产品缺陷。改为「恰好这 1 副不可解」，仍具判红能力：
+//      若可解集变多/变少、或不可解者换成别的牌组，均判红。
+const T10_KNOWN_UNSOLVABLE = ['2,7,11,13'];
+const t10_failKeys = t10_fail.map(d => d.join(','));
+const t10_pass = t10_failKeys.length === T10_KNOWN_UNSOLVABLE.length
+  && t10_failKeys.every(k => T10_KNOWN_UNSOLVABLE.includes(k));
+console.log(`  ${t10_pass ? '✅' : '❌'} T-10  20 副中可解 = ${t10_ok}/20（期望 19/20，[2,7,11,13] 已证无解）`);
 if (t10_fail.length > 0) console.log('     不可解者:', t10_fail);
+if (!t10_pass) console.log('     ❌ 与已证基线不符，期望不可解集 =', T10_KNOWN_UNSOLVABLE);
 if (t10_pass) pass++; else fail++;
 
 console.log('\n=== 补充观测：276b824 GCD 约简是否影响 T-02/T-03 边界 ===');
@@ -98,3 +107,7 @@ console.log(`  1           key = ${k_1}`);
 console.log(`  是否相等？ ${k_complex === k_1 ? '⚠️ 是' : '否'}`);
 
 console.log(`\n\n========== 汇总：${pass} pass / ${fail} fail ==========`);
+
+// —— task-75(a)：pass/fail 此前已算出但未接退出码（属哑弹）——
+console.log(`[99-verify-solver] pass=${pass} fail=${fail}`);
+process.exit(fail === 0 ? 0 : 1);
