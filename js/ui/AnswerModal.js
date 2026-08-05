@@ -38,6 +38,7 @@ export default class AnswerModal {
   constructor() {
     this.visible = false;
     this._solutions = []; // string[]
+    this._solutionCount = null; // task-79：真实解法条数（null=退化为行数）
     this._scrollY = 0;    // DP 单位（在设计坐标空间下）
     this._buttonRects = [];
     // 触摸拖拽状态
@@ -51,8 +52,13 @@ export default class AnswerModal {
    * 打开答案弹窗
    * @param {string[]} solutions 全解字符串数组（外部保证已去重 & 已排序）
    */
-  open(solutions) {
+  // task-79 Bug A 修复：入参约定为「已排版好的展示行」，本类只原样绘制，
+  //   不再对任何行追加 ' = 24'（后缀由调用方按行语义决定）。
+  //   opts.count = 真实解法条数，供标题「共 N 个解」；缺省退化为行数（兼容老调用）。
+  open(solutions, opts) {
     this._solutions = Array.isArray(solutions) ? solutions.slice() : [];
+    const n = opts && typeof opts.count === 'number' ? opts.count : null;
+    this._solutionCount = n != null ? n : this._solutions.length;
     this._scrollY = 0;
     this.visible = true;
     this._lastActiveTs = Date.now();
@@ -137,7 +143,9 @@ export default class AnswerModal {
     ctx.font = `${Math.floor(14 * c.scale)}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`共 ${this._solutions.length} 个解`, panel.x + 20 * c.scale, panel.y + 74 * c.scale);
+    // task-79：计数用真实解法数，不再把标题/空行/计数行算进「共 N 个解」
+    const solCount = this._solutionCount != null ? this._solutionCount : this._solutions.length;
+    ctx.fillText(`共 ${solCount} 个解`, panel.x + 20 * c.scale, panel.y + 74 * c.scale);
 
     // 列表容器
     const listRect = this._scaleRect(LIST_CONTAINER, c);
@@ -183,7 +191,9 @@ export default class AnswerModal {
         ctx.restore();
       }
 
-      const text = this._solutions[i] + ' = 24';
+      // task-79 Bug A：原样绘制。调用方已对算式行拼好 ' = 24'；
+      //   标题行 / 空行 / 「…等共 N 条」计数行不应带任何后缀。
+      const text = this._solutions[i];
       ctx.fillStyle = ITEM_COLOR;
       ctx.fillText(text, xInList, yInList + (ITEM_HEIGHT / 2) * c.scale);
     }

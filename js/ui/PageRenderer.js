@@ -620,10 +620,18 @@ export default class PageRenderer {
   //   - Solver 判无解（solutions.length===0）→ 庆祝弹窗～“本局确实无解！”
   //   - Solver 判有解 → toast “再想想…”
   //   - 两分支均不自动发牌（R-04 硬约束）
+  // task-79 Bug B 修复：口径必须与答案窗口一致 —— 初级或高级任一有解即「有解」。
+  //   开关语义：_advancedCalc 关闭时，RecipParser 会直接拒收 recip token（见 RecipParser L225），
+  //   玩家根本无法输入 1/x ⇒ 高级解不可达，且答案窗口也不展示高级分区，
+  //   故此时不计入高级解，三处（答案窗口/无解按钮/提示窗口）保持同一口径。
   _handleNoSolTap() {
     const gc = this.ui && this.ui.gameCore;
     if (!gc || typeof gc.getSolutions !== 'function') return;
-    const hasSolution = gc.getSolutions().length > 0;
+    const primaryCount = gc.getSolutions().length;
+    const d = this._recipDisplay;
+    // 与答案窗口同口径：仅在开关开启时高级解才可见/可达
+    const advCount = this._advancedCalc && d && d.counts ? d.counts.advanced : 0;
+    const hasSolution = primaryCount > 0 || advCount > 0;
     if (!hasSolution) {
       this.noSolModal.showCelebrate();
     } else {
@@ -667,10 +675,16 @@ export default class PageRenderer {
       const s3 = gc.getHintStep(3);
       if (s1 && s2) { this.hintModal.open([s1, s2, s3]); return; }
     }
-    // 初级无解：陀底给倒数解第 1 条（排序后）
-    const adv = this._recipDisplay && this._recipDisplay.advancedTop;
+    // 初级无解：兢底给倒数解第 1 条（排序后）
+    // task-79 Bug C 修复：原因不是「字段名错」—— buildDisplay() 确实导出 advancedTop（非 null 字符串）；
+    //   真因是「结构不匹配」：HintModal 渲染的是 `${cur.lhs} ${cur.op} ${cur.rhs} = ${cur.result}`（见 HintModal L121），
+    //   而此处原本交的是 { text, expr }，四个字段全为 undefined ⇒ 屏上出现 "undefined undefined undefined = undefined"。
+    //   故改为构造 HintModal 约定的 {lhs, op, rhs, result} 形状；开关关闭时不泄题（与 Bug B 同口径）。
+    const d = this._recipDisplay;
+    const adv = this._advancedCalc && d ? d.advancedTop : null;
     if (adv) {
-      const step = { text: `高级解法：${adv} = 24`, expr: adv };
+      // 整条倒数算式作为左侧，结果固定 24；op/rhs 置空串避免再出 undefined
+      const step = { step: 1, lhs: `高级解法：${adv}`, op: '', rhs: '', result: '24' };
       this.hintModal.open([step, step, step]);
       return;
     }
@@ -711,11 +725,19 @@ export default class PageRenderer {
       const gc = this.ui && this.ui.gameCore;
       if (gc && typeof gc.getAllSolutions === 'function') {
         const sols = gc.getAllSolutions();
-        this.answerModal.open(sols);
+        // task-79 Bug A：降级路径给的是裸算式（getAllSolutions 不带 = 24），
+        //   而 AnswerModal 已不再自动加后缀 ⇒ 此处自行拼接，且 count 就是真实解数。
+        const dispLines = sols.map((e) => `${e} = 24`);
+        this.answerModal.open(dispLines, { count: sols.length });
         return;
       }
     }
-    this.answerModal.open(lines);
+    // task-79 Bug A：count 传真实解法条数（不含标题/空行/计数行）；
+    //   高级解仅在开关开启时计入，与无解按钮/提示窗口同口径。
+    const solTotal =
+      (d && d.counts ? d.counts.primary : 0) +
+      (this._advancedCalc && d && d.counts ? d.counts.advanced : 0);
+    this.answerModal.open(lines, { count: solTotal });
   }
 
   _onButtonTap(page, key) {
