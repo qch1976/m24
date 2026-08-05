@@ -63,10 +63,87 @@ console.log('[mjs-behavior] B 层：语义重写子集的行为等价断言（Ca
 console.log(`Node ${process.version}`);
 console.log('='.repeat(70));
 
+// ═══════════════════════════════════════════════════════════════════════════
+// 【裸跑自我说明】（补 task-74 缺口；模式照搬已入库的 p0-render-path.mjs）
+//   本脚本必须挂 ESM hooks 运行。裸跑时报错形式【因平台而异】：
+//     Linux   : ERR_MODULE_NOT_FOUND（Cannot find module '.../Components'）
+//     Windows : SyntaxError: Unexpected token 'export' / Cannot use import
+//               statement outside a module（CJS 回退所致，同一缺陷两种表现）
+//   光看这些报错极易误判成「产品代码坏了」，故失败时打印可直接复制的命令行。
+//
+// ⚠️ 本提示【印不出来】的三种情形（规则 19：探测也有地板）：
+//   (a) 若把下方 await import 改回顶层静态 import —— 静态 import 在**链接阶段**
+//       失败，早于任何顶层代码执行，catch 根本不会跑到。故必须保持动态 import。
+//       ⇒ 本文件 11 处产品 import 全部为 await import，且统一走下方 imp()。
+//   (b) Node < 18.18：`--import` 本身是未知 flag（双线 backport，added in
+//       v19.0.0 / v18.18.0），Node 在**命令行解析阶段**就退出
+//       （`node: bad option: --import`，exit=9），本文件 JS 压根未执行。
+//   (c) esm-hooks.mjs 自身缺 module.registerHooks 时，由它自己 exit(2) 并打印，
+//       不会走到这里。
+//   ⇒ 这三种情形下真正的读者是**事后翻文件排查的人**，故说明写在源码里。
+//
+// 【为何用 imp() 包装而非单个 try/catch】
+//   本文件有 11 处产品 import，散落在 Card / Deck / DealGenerator 三段。
+//   单个 try 只能护住第一处；一旦有人在后面新增 import 就漏出裸报错。
+//   故统一经 imp()，新增 import 天然继承 guard。
+// ═══════════════════════════════════════════════════════════════════════════
+const HOOKS_CMD =
+  'node --import ./tester/render-smoke/esm-hooks.mjs tools/verify/verify-mjs-behavior.mjs';
+
+function explainHooksMissing(e, spec) {
+  // ⚠️ 这里必须把 code 与 message **都**纳入匹配，不能写 `e.message || e.code`。
+  //   实测（Linux/Node v22）：缺 hooks 时 `import('js/core/Deck.js')` 抛出的错
+  //     e.code    = 'ERR_MODULE_NOT_FOUND'
+  //     e.message = "Cannot find module '.../Card' imported from .../Deck.js"
+  //   `(message || code)` 短路只取到 message，而 message 里**不含**
+  //   'ERR_MODULE_NOT_FOUND' 字样 ⇒ 所有 code 类判据全部失配 ⇒ guard 静默失效，
+  //   把裸报错原样抛回，rc=1 且无任何人话提示。我第一版就是这么写的，实测才抓到。
+  //   ⇒ 教训同族于「把间接量当直接量」：想判 code 就直接读 code，别经 message 代理。
+  const code = String((e && e.code) || '');
+  const text = String((e && e.message) || '');
+  const msg = (code + ' ' + text).trim() || String(e);
+  const isHooksMissing =
+    /ERR_MODULE_NOT_FOUND/.test(msg) ||
+    /ERR_UNKNOWN_FILE_EXTENSION/.test(msg) ||
+    /Cannot find module/.test(msg) ||
+    /Cannot use import statement outside a module/.test(msg) ||
+    /Unexpected token 'export'/.test(msg) ||
+    /Failed to load the ES module/.test(msg);
+  if (!isHooksMissing) throw e;   // 真异常原样抛出，绝不吞掉
+  const L = '='.repeat(78);
+  console.error('\n' + L);
+  console.error('[mjs-behavior] 🔴 本门禁必须挂 ESM hooks 运行，不能裸跑');
+  console.error(L);
+  console.error('  直接跑这一行即可：\n');
+  console.error('    ' + HOOKS_CMD + '\n');
+  console.error(L);
+  console.error('  原因：产品 js/**.js 用 ESM 语法但 import 不带扩展名，');
+  console.error('        且仓库无 "type":"module" ⇒ Node 按 CJS 解析即报错。');
+  console.error('        hooks 负责补 .js 后缀并强制按 ESM 加载，产品代码字节零改动。');
+  console.error('  加载失败的模块：' + spec);
+  console.error('  环境：node=' + process.version + '  platform=' + process.platform);
+  console.error('  cwd =' + process.cwd());
+  console.error('  原始报错：' + (code ? '[' + code + '] ' : '') + text.split('\n')[0]);
+  console.error(L + '\n');
+  process.exit(2);
+}
+
+// 统一入口：所有产品模块 import 都走这里，失败即给人话提示。
+// 借鉴测试专家 verify-frozen6.mjs 的「存在性先于一致性」——
+// 先证「模块能加载」，再谈「两侧行为是否一致」；
+// 否则「加载不了」会被读成「没有差异」，那是最坏的一种假绿。
+async function imp(spec) {
+  try {
+    return await import(spec);
+  } catch (e) {
+    explainHooksMissing(e, spec);
+  }
+}
+
 // ── Card ──────────────────────────────────────────────────────────────────
 console.log('\n── Card：构造行为 + 查表 + 异常分支 ──');
-const CardJs = await import('../../js/core/Card.js');
-const CardMjs = await import('../../js/core/Card.mjs');
+const CardJs = await imp('../../js/core/Card.js');
+const CardMjs = await imp('../../js/core/Card.mjs');
 
 // 导出符号先对齐（必要但不充分 —— 故后面还要比行为）
 {
@@ -128,8 +205,8 @@ sameBehavior('buildFullDeck() 红牌计数',
 
 // ── Deck ──────────────────────────────────────────────────────────────────
 console.log('\n── Deck：发牌规模 + 可解性 + 异常分支 ──');
-const DeckJs = await import('../../js/core/Deck.js');
-const DeckMjs = await import('../../js/core/Deck.mjs');
+const DeckJs = await imp('../../js/core/Deck.js');
+const DeckMjs = await imp('../../js/core/Deck.mjs');
 {
   const a = Object.keys(DeckJs).sort().join(',');
   const b = Object.keys(DeckMjs).sort().join(',');
@@ -158,8 +235,8 @@ sameBehavior('Deck.dealSolvable(3) 退化为普通发牌',
 
 // 可解性实证：连续多轮 dealSolvable 的结果都须被 Solver 判为可解
 {
-  const solvableJs = await import('../../js/core/Solver.js');
-  const solvableMjs = await import('../../js/core/Solver.mjs');
+  const solvableJs = await imp('../../js/core/Solver.js');
+  const solvableMjs = await imp('../../js/core/Solver.mjs');
   let okJs = 0, okMjs = 0;
   for (let i = 0; i < 20; i++) {
     const vj = new DeckJs.default().dealSolvable(4).map((c) => c.value);
@@ -227,15 +304,15 @@ sameBehavior('Deck.shuffle() 后牌面集合无重复无丢失',
 
 // ── DealGenerator ─────────────────────────────────────────────────────────
 console.log('\n── DealGenerator：模式分派 + 规模 ──');
-const DgJs = await import('../../js/core/DealGenerator.js');
-const DgMjs = await import('../../js/core/DealGenerator.mjs');
+const DgJs = await imp('../../js/core/DealGenerator.js');
+const DgMjs = await imp('../../js/core/DealGenerator.mjs');
 {
   const a = Object.keys(DgJs).sort().join(',');
   const b = Object.keys(DgMjs).sort().join(',');
   ck('DealGenerator 导出符号集一致', a === b, a === b ? a : `js=[${a}] mjs=[${b}]`);
 }
 {
-  const SetJs = await import('../../js/core/Settings.js');
+  const SetJs = await imp('../../js/core/Settings.js');
   const modes = Object.values(SetJs.DEAL_MODE ?? {});
   ck('DEAL_MODE 取到模式枚举', modes.length > 0, `modes=[${modes.join(',')}]`);
   // generate(mode) 逐模式分派。
@@ -261,8 +338,8 @@ const DgMjs = await import('../../js/core/DealGenerator.mjs');
 
   // generateSolvable 的核心契约：结果必须真可解（否则等于退化成 random）
   {
-    const SolJs = await import('../../js/core/Solver.js');
-    const SolMjs = await import('../../js/core/Solver.mjs');
+    const SolJs = await imp('../../js/core/Solver.js');
+    const SolMjs = await imp('../../js/core/Solver.mjs');
     let okJs = 0, okMjs = 0;
     for (let i = 0; i < 20; i++) {
       if (SolJs.default.isSolvable(DgJs.generateSolvable().map((c) => c.value), 24)) okJs++;

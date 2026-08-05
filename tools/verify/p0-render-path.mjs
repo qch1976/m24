@@ -73,10 +73,17 @@ globalThis.Image = function () { const i = {}; setTimeout(() => i.onload && i.on
 const HOOKS_CMD =
   'node --import ./tester/render-smoke/esm-hooks.mjs tools/verify/p0-render-path.mjs';
 function explainHooksMissing(e) {
-  const msg = String((e && (e.message || e.code)) || e);
+  // ⚠️ code 与 message 都要纳入匹配。实测（Linux/Node v22）缺 hooks 时：
+  //   e.code='ERR_MODULE_NOT_FOUND'，而 e.message="Cannot find module '...'"，
+  //   `(message || code)` 短路只取 message ⇒ 不含 code 字样 ⇒ 判据全失配 ⇒
+  //   guard 静默失效（实测本文件曾 rc=1 且零提示）。想判 code 就直接读 code。
+  const code = String((e && e.code) || '');
+  const text = String((e && e.message) || '');
+  const msg = (code + ' ' + text).trim() || String(e);
   const isHooksMissing =
     /ERR_MODULE_NOT_FOUND/.test(msg) ||
     /ERR_UNKNOWN_FILE_EXTENSION/.test(msg) ||
+    /Cannot find module/.test(msg) ||
     /Cannot use import statement outside a module/.test(msg) ||
     /Unexpected token 'export'/.test(msg) ||
     /Failed to load the ES module/.test(msg);
@@ -93,7 +100,7 @@ function explainHooksMissing(e) {
   console.error('        hooks 负责补 .js 后缀并强制按 ESM 加载，产品代码字节零改动。');
   console.error('  环境：node=' + process.version + '  platform=' + process.platform);
   console.error('  cwd =' + process.cwd());
-  console.error('  原始报错：' + msg.split('\n')[0]);
+  console.error('  原始报错：' + (code ? '[' + code + '] ' : '') + text.split('\n')[0]);
   console.error(L + '\n');
   process.exit(2);
 }
