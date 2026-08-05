@@ -2,10 +2,12 @@
 // 依据：INPUT-06.md §5 task-B 交付要求 2 + 方案 §7 风险 5
 // 目标：证明「牌桌发牌后 solve() 全量枚举 ≤ 2s」在真机档位可达
 import { solve } from '../js/core/RecipSolver.mjs';
+import { stage, done } from './_diag.mjs';
 
 const T = (fn) => { const t = process.hrtime.bigint(); const r = fn(); return { r, ms: Number(process.hrtime.bigint() - t) / 1e6 }; };
 
 // ① 最坏用例：4 张牌全可倒数（无 0/1），点数大 → 叶子变体 2^4=16 套
+stage('worst/dense/light 三组基准即将开跑');
 const worstDecks = [
   [13, 13, 13, 13], [12, 13, 11, 13], [11, 12, 13, 10],
   [7, 8, 9, 13], [13, 11, 7, 9], [8, 8, 13, 13],
@@ -66,6 +68,7 @@ for (const k of [5, 8, 10, 15, 20]) {
   console.log(`  真机降速 ${k}x 推算 = ${proj.toFixed(0)}ms  ${proj <= 2000 ? 'PASS' : 'FAIL'}`);
 }
 const SAFE_K = Math.floor(2000 / WORST);
+done(0, 0);
 console.log(`  可容忍最大降速系数 = ${SAFE_K}x`);
 console.log(WORST * 15 <= 2000 ? '\nRESULT: PASS —— 15x 降速下仍 ≤2s，R-05 门禁满足' : '\nRESULT: FAIL —— 需优化');
 console.log('='.repeat(64));

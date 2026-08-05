@@ -1,12 +1,15 @@
 // selftest_input05_layout.mjs — R-01 + R-05 布局
 // 顶行三按钮上边沿严格对齐、大小一致；ctrlRow cols=4 坐标；⚙️ 按钮坐标
 import fs from 'fs';
+import { track, done } from './_diag.mjs';
+// task-73: 用 track() 包装，使中途 throw 时也能报「跑到第几项、哪项炸的」
+const check = track(_checkRaw);
 
 const pr = fs.readFileSync('js/ui/PageRenderer.js', 'utf-8');
 const aa = fs.readFileSync('js/ui/AnswerArea.js', 'utf-8');
 
 let ok = 0, fail = 0;
-function check(name, cond) {
+function _checkRaw(name, cond) {
   if (cond) { ok++; console.log(`  ✓ ${name}`); }
   else { fail++; console.log(`  ✗ ${name}`); }
 }
@@ -48,6 +51,7 @@ check("CTRL_KEYS 含 'nosol'", /CTRL_KEYS\s*=\s*\[[^\]]*nosol/.test(aa));
 check("PageRenderer 定义 HINT_BTN_BG='#F5A623'", /HINT_BTN_BG\s*=\s*['"]#F5A623['"]/.test(pr));
 check("PageRenderer 定义 ANSWER_BTN_BG='#2ECC71'", /ANSWER_BTN_BG\s*=\s*['"]#2ECC71['"]/.test(pr));
 
+done(ok, fail);
 console.log(`[selftest_input05_layout] R-01/R-05: ok=${ok} fail=${fail}`);
 console.log(fail === 0 ? 'PASS' : 'FAIL');
 process.exit(fail === 0 ? 0 : 1);

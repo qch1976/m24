@@ -2,15 +2,18 @@
 // solvable 模式 100 次全部有解
 import { generateSolvable } from '../js/core/DealGenerator.mjs';
 import Solver from '../js/core/Solver.mjs';
+import { stage, done } from './_diag.mjs';
 
 let ok = 0, fail = 0;
 const failures = [];
+stage('R-02 solvable 100 轮采样');
 for (let i = 0; i < 100; i++) {
   const cards = generateSolvable();
   const values = cards.map(c => c.value);
   if (Solver.isSolvable(values, 24)) ok++;
   else { fail++; failures.push({ i, values }); }
 }
+done(ok, fail);
 console.log(`[selftest_input05_solver] R-02 solvable 100 tests: ok=${ok} fail=${fail}`);
 if (fail > 0) {
   console.log('failures:', JSON.stringify(failures));

@@ -1,6 +1,9 @@
 // selftest_input05_storage.mjs — R-05
 // 持久化 loadSettings/saveSettings 5 降级触发点 + 往返一致
 import { loadSettings, saveSettings, DEAL_MODE } from '../js/core/Settings.mjs';
+import { track, done } from './_diag.mjs';
+// task-73: 用 track() 包装，使中途 throw 时也能报「跑到第几项、哪项炸的」
+const check = track(_checkRaw);
 
 // mock wx storage
 let store = {};
@@ -11,7 +14,7 @@ globalThis.wx = {
 };
 
 let ok = 0, fail = 0;
-function check(name, cond) {
+function _checkRaw(name, cond) {
   if (cond) { ok++; console.log(`  ✓ ${name}`); }
   else { fail++; console.log(`  ✗ ${name}`); }
 }
@@ -47,6 +50,7 @@ check('7) save solvable then load = solvable', loadSettings().dealMode === 'solv
 saveSettings({ dealMode: 'weird' });
 check('8) save weird → normalized to solvable', loadSettings().dealMode === 'solvable');
 
+done(ok, fail);
 console.log(`[selftest_input05_storage] R-05: ok=${ok} fail=${fail}`);
 console.log(fail === 0 ? 'PASS' : 'FAIL');
 process.exit(fail === 0 ? 0 : 1);

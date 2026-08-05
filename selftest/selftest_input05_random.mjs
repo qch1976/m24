@@ -2,6 +2,7 @@
 // random 模式 200 次采样：出现有解+无解；无重摇；uniform 分布（10000 次子采样）
 import { generateRandom } from '../js/core/DealGenerator.mjs';
 import Solver from '../js/core/Solver.mjs';
+import { stage, done } from './_diag.mjs';
 
 // 200 次
 let solvedCnt = 0, unsolvedCnt = 0;
@@ -11,6 +12,7 @@ for (let i = 0; i < 200; i++) {
   if (Solver.isSolvable(values, 24)) solvedCnt++;
   else unsolvedCnt++;
 }
+stage('200 次采样完成，开始统计');
 const total = solvedCnt + unsolvedCnt;
 const noSolRate = unsolvedCnt / total;
 console.log(`[selftest_input05_random] R-03 200 次采样: solved=${solvedCnt} unsolved=${unsolvedCnt}`);
@@ -55,5 +57,6 @@ console.log(`  R-03 无解率 15%~45%: ${cond3 ? '✓' : '✗'} (${(noSolRate*10
 console.log(`  R-03 uniform 分布: ${uniformOk ? '✓' : '✗'}`);
 
 const allOk = cond1 && cond2 && cond3 && uniformOk;
+done(solvedCnt, unsolvedCnt);
 console.log(allOk ? 'PASS' : 'FAIL');
 process.exit(allOk ? 0 : 1);

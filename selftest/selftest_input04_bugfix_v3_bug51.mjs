@@ -17,9 +17,12 @@
 
 import { toCanonicalKeyV2, findSolutionsWithAST, formatExprPretty, intToFraction } from '../js/core/Solver.mjs';
 import Solver from '../js/core/Solver.mjs';
+import { track, done } from './_diag.mjs';
+// task-73: track() 包装，中途 throw 时仍可报「跑到第几项、哪项炸的」
+const ok = track(_okRaw);
 
 let pass = 0, fail = 0;
-function ok(name, cond, detail) {
+function _okRaw(name, cond, detail) {
   const line = (cond ? 'PASS' : 'FAIL') + ' - ' + name + (detail ? ' | ' + detail : '');
   console.log(line);
   if (cond) pass++; else fail++;
@@ -180,4 +183,5 @@ console.log('');
 console.log('============ SUMMARY ============');
 console.log(`total=${pass + fail}  pass=${pass}  fail=${fail}`);
 console.log(`OVERALL: ${fail === 0 ? 'PASS' : 'FAIL'}`);
+done(pass, fail);
 process.exit(fail === 0 ? 0 : 1);

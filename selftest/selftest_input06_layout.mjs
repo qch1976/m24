@@ -2,8 +2,9 @@
 // R-06/R-07：4+6+2+4=16 键 / 15键 OPEN + 14键关闭 / 牌面下移放大 / 无重叠 / tap≥44 / 安全区
 import fs from 'fs';
 
+import { track, done } from './_diag.mjs';
 let pass = 0, fail = 0; const bad = [];
-const ck = (n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } };
+const ck = track((n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } });
 
 const aa = fs.readFileSync('js/ui/AnswerArea.js', 'utf-8');
 const pr = fs.readFileSync('js/ui/PageRenderer.js', 'utf-8');
@@ -127,4 +128,5 @@ ck('SLOTS_CONFIG 已移除 slot_advOp（功能已实现）', !/slot_advOp/.test(
 console.log('\n' + '='.repeat(70));
 console.log(`RESULT: pass=${pass} fail=${fail}`);
 if (fail > 0) { console.log('FAILED: ' + bad.join(' | ')); process.exit(1); }
-console.log('ALL PASS'); console.log('='.repeat(70)); process.exit(0);
+console.log('ALL PASS'); console.log('='.repeat(70)); done(pass, fail);
+process.exit(0);

@@ -1,3 +1,4 @@
+import { track, done } from './_diag.mjs';
 // selftest_input06_dedup.mjs — task-68 去重口径实现自验
 // 依据：171-INPUT06-去重口径规范-定稿.md §5（双向判据）+ §6（基准）+ §10（16 项清单）
 //
@@ -15,10 +16,10 @@ import {
 } from '../js/core/RecipSolver.mjs';
 
 let pass = 0, fail = 0;
-const ck = (name, cond, detail = '') => {
+const ck = track((name, cond, detail = '') => {
   if (cond) { pass++; console.log(`  ok  ${name}${detail ? '   ' + detail : ''}`); }
   else { fail++; console.log(`  XX  ${name}   ${detail}`); }
-};
+});
 
 // ---- 表达式构造 DSL（独立于 solver 内部枚举）----
 const n = (c) => numLeaf(c, 0);
@@ -273,4 +274,5 @@ console.log(fail === 0
   ? '✅ 双向判据 + 全量基准 + 稳定性 全部通过'
   : '🔴 存在未通过项，禁止交付');
 console.log('='.repeat(62));
+done(pass, fail);
 process.exit(fail === 0 ? 0 : 1);

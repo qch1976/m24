@@ -1,3 +1,4 @@
+import { track, done } from './_diag.mjs';
 // selftest_input06_settings.mjs — INPUT-06 §1.5 m24.settings v1→v2 迁移
 // R-10：迁移 + 7 个降级触发点 + 往返一致性；任一路径不得抛异常
 const store = {};
@@ -5,7 +6,7 @@ globalThis.wx = { getStorageSync: (k) => store[k], setStorageSync: (k, v) => { s
 const { loadSettings, saveSettings, DEAL_MODE, SETTINGS_VERSION, getDefaultSettings } = await import('../js/core/Settings.mjs');
 
 let pass = 0, fail = 0; const bad = [];
-const ck = (n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } };
+const ck = track((n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } });
 const D = { version: 2, dealMode: 'solvable', advancedCalc: false };
 
 console.log('='.repeat(70));
@@ -81,4 +82,5 @@ ck('getDefaultSettings() 返回新对象（不共享引用）', (() => { const a
 console.log('\n' + '='.repeat(70));
 console.log(`RESULT: pass=${pass} fail=${fail}`);
 if (fail > 0) { console.log('FAILED: ' + bad.join(' | ')); process.exit(1); }
-console.log('ALL PASS'); console.log('='.repeat(70)); process.exit(0);
+console.log('ALL PASS'); console.log('='.repeat(70)); done(pass, fail);
+process.exit(0);

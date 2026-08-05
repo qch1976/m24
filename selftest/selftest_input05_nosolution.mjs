@@ -22,6 +22,7 @@ for (let i = 0; i < 500 && (unsolved.length < 5 || solved.length < 5); i++) {
   }
 }
 
+stage('采样完成，开始判定无解分支');
 let ok = 0, fail = 0;
 for (const v of unsolved) {
   const branch = noSolBranch(v);
@@ -37,6 +38,7 @@ console.log(`[selftest_input05_nosolution] R-04 双分支: unsolved=${unsolved.l
 
 // 验证 PageRenderer._handleNoSolTap 源码不含 _dealAction 调用
 import fs from 'fs';
+import { stage, done } from './_diag.mjs';
 const pr = fs.readFileSync('js/ui/PageRenderer.js', 'utf-8');
 // 抽取 _handleNoSolTap 方法体
 const m = pr.match(/_handleNoSolTap\s*\(\)\s*\{([\s\S]+?)^\s{2}\}/m);
@@ -55,5 +57,6 @@ if (m) {
 }
 
 const allOk = fail === 0 && noAutoDeal;
+done(ok, fail);
 console.log(allOk ? 'PASS' : 'FAIL');
 process.exit(allOk ? 0 : 1);

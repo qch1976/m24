@@ -3,8 +3,9 @@
 import { parse, evalAst, checkUserAnswer, ERR } from '../js/core/RecipParser.mjs';
 import { is24F } from '../js/core/RecipSolver.mjs';
 
+import { track, done } from './_diag.mjs';
 let pass = 0, fail = 0; const bad = [];
-const ck = (n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } };
+const ck = track((n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } });
 
 const N = (i) => ({ type: 'number', cardIndex: i });
 const O = (v) => ({ type: 'operator', value: v });
@@ -107,4 +108,5 @@ ck('  1/1 不计入 usedRecip（恒等）', rJ.usedRecip === false, 'usedRecip='
 console.log('\n' + '='.repeat(70));
 console.log(`RESULT: pass=${pass} fail=${fail}`);
 if (fail > 0) { console.log('FAILED: ' + bad.join(' | ')); process.exit(1); }
-console.log('ALL PASS'); console.log('='.repeat(70)); process.exit(0);
+console.log('ALL PASS'); console.log('='.repeat(70)); done(pass, fail);
+process.exit(0);

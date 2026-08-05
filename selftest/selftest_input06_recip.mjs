@@ -8,10 +8,13 @@ import {
   numLeaf, recipLeaf, evalNode, is24F, F, MAX_ITER,
   sortSolutions, countAdvSymbols,
 } from '../js/core/RecipSolver.mjs';
+import { track, done } from './_diag.mjs';
+// task-73: 用 track() 包装，使中途 throw 时也能报「跑到第几项、哪项炸的」
+const ck = track(_ckRaw);
 
 let pass = 0, fail = 0;
 const bad = [];
-function ck(name, cond, extra) {
+function _ckRaw(name, cond, extra) {
   if (cond) { pass++; console.log('  ok  ' + name + (extra ? '  ' + extra : '')); }
   else { fail++; bad.push(name); console.log('  XX  ' + name + (extra ? '  ' + extra : '')); }
 }
@@ -190,6 +193,7 @@ const v737 = evalNode(b('*', n(7), b('+', n(3), b('*', n(3), r(7)))));
 ck('7*(3+3*(1/7)) 精确=24', is24F(v737), `${v737.n}/${v737.d}`);
 
 console.log('\n' + '='.repeat(70));
+done(pass, fail);
 console.log(`RESULT: pass=${pass} fail=${fail}`);
 if (fail > 0) { console.log('FAILED: ' + bad.join(' | ')); process.exit(1); }
 console.log('ALL PASS');
