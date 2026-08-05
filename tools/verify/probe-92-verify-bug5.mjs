@@ -1,4 +1,6 @@
-// 92-verify-bug5.mjs — Bug 5 探针脚本（服务器实测同步版）
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：本批 probe-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
+// probe-92-verify-bug5.mjs — Bug 5 探针脚本（服务器实测同步版）
 // 目的：
 //   [Bug 5.1] 在 fec9851 版 Solver.mjs 上验证 toCanonicalKeyV2 未把 a×1 / a÷1 归一，
 //             并给出修复选型 P 的伪代码验证（本文件仅打印期望的目标 key，实际归一函数由开发实现）。
@@ -8,7 +10,7 @@
 //
 // 运行：
 //   1) 从服务器拉 fec9851 的 js/core/Solver.js 到本目录改名 Solver.mjs
-//   2) node 92-verify-bug5.mjs
+//   2) node probe-92-verify-bug5.mjs
 //
 // 依赖：./Solver.mjs（fec9851 版，不改字节）
 

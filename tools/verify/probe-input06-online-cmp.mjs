@@ -1,3 +1,5 @@
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：本批 probe-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
 // 外部判据：新口径初级解数 vs INPUT-05 线上已验收 solver（完全独立实现）
 import * as ON from '../../js/core/Solver.mjs';
 import {solveDeck} from './lib-input06-dedup.mjs';

@@ -1,3 +1,5 @@
+// 本文件是被其他脚本 import 的【库】，不是门禁脚本；单独运行无输出、无退出码意义。
+// 判红能力在调用它的门禁脚本里，勿据本文件退出码做任何结论。
 // INPUT-06 Architect 参考实现（供 verify 脚本共用）
 // 叶子倒数枚举 + §1.2.3 乘除链归约 + Fraction(BigInt) 精确判等 + 三层去重键
 export const bg=(a,b)=>{while(b){const t=a%b;a=b;b=t;}return a;};
