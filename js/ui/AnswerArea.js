@@ -8,12 +8,14 @@
 import { roundRect } from './Components';
 
 // 视觉常量
-// task-81｜INPUT-06 §1.7 答题区背景视觉：
-//   由 rgba(0,0,0,0.30) 改为 alpha=0.50 的纯色半透明蒙层。
-//   项目主 2026-08-05 20:53 裁定「就是半透明」⇒ 不做毛玻璃/模糊，
+// task-81 / task-85｜INPUT-06 §1.7 答题区背景视觉：
+//   原 rgba(0,0,0,0.30) → task-81 改 0.50 → task-85 定值 **0.60**。
+//   项目主 2026-08-05 20:53 裁定「就是半透明」⇒ 不做毛玻璃/模糊；
+//   22:25 实机验收「透明度还是太少」⇒ 定值 0.60（与架构师 197 号三选推荐一致）。
 //   故不引入 ctx.filter、不做离屏 canvas，逐帧开销与改前完全一致（仍是一次 roundRect+fill）。
 //   仅改答题区自身背景，不触碰 Background.js（在 6 保护清单内）。
-const BG_COLOR = 'rgba(0,0,0,0.50)';
+//   ⚠️ 改此值必须同步 selftest/selftest_task81_bg.mjs 的硬断言期望值。
+const BG_COLOR = 'rgba(0,0,0,0.60)';
 const FORMULA_BG = 'rgba(255,255,255,0.12)';
 const FORMULA_TEXT = '#FFFFFF';
 const BTN_BG_NUM = '#4C6EF5';

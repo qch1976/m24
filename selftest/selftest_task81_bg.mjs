@@ -1,4 +1,5 @@
-// task-81 selftest：答题区背景 alpha=0.5 纯色蒙层（INPUT-06 §1.7）
+// task-81 / task-85 selftest：答题区背景 alpha=0.60 纯色蒙层（INPUT-06 §1.7）
+// 项目主 2026-08-05 22:25 实机验收定值 0.60（历史：0.30 → 0.50 → 0.60）。
 import { readFileSync } from 'fs';
 const src = readFileSync(new URL('../js/ui/AnswerArea.js', import.meta.url), 'utf8');
 // 剥注释后再断言（避免注释文字污染判据 —— 团队规则 11）
@@ -9,10 +10,11 @@ const T=(n,c,got)=>{ if(c){pass++;console.log('  PASS',n);} else {fail++;console
 const m = code.match(/const BG_COLOR = '([^']+)'/);
 T('1 BG_COLOR 已定义', !!m, m);
 const val = m ? m[1] : '';
-T('2 alpha = 0.50', /rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.50?\s*\)/.test(val), val);
+T('2 alpha = 0.60', /rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.60?\s*\)/.test(val), val);
 const alpha = val.match(/,\s*([0-9.]+)\s*\)$/);
-T('3 alpha 数值恰为 0.5', alpha && parseFloat(alpha[1])===0.5, alpha && alpha[1]);
-T('4 不再是旧值 0.30', !/0\.30?\s*\)/.test(val) || parseFloat(alpha[1])!==0.3, val);
+T('3 alpha 数值恰为 0.6', alpha && parseFloat(alpha[1])===0.6, alpha && alpha[1]);
+// 旧值回退防护：0.30（INPUT-03 初值）与 0.50（task-81 中间值）均不得再出现
+T('4 不再是旧值 0.30 / 0.50', alpha && parseFloat(alpha[1])!==0.3 && parseFloat(alpha[1])!==0.5, alpha && alpha[1]);
 // 裁定：不得引入毛玻璃/模糊实现
 T('5 无 ctx.filter（不做毛玻璃）', !/ctx\.filter/.test(code), (code.match(/ctx\.filter.*/)||[])[0]);
 T('6 无 blur(', !/blur\s*\(/.test(code), (code.match(/blur\s*\(.*/)||[])[0]);
