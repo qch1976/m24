@@ -49,7 +49,10 @@ T('C2 提示含倒数算式', hintText.includes('÷')&&hintText.includes('= 24')
 // 三处口径一致
 const winShows = d.counts.advanced>0;
 T('D1 三处口径一致(窗口/按钮/提示)', winShows===hasSolution(primaryCount,d,true) && winShows===(hs!==null), {winShows});
-T('D2 caption 真实解数=2', solTotal(d,true)===2, solTotal(d,true));
+// ★ task-80 后更新：(3,6,7,J) 的两条高级解本是负负得正重复对，
+//   去重后 advanced 由 2 收敛为 1 ⇒ caption 真实解数也相应为 1。
+//   此处断言跟随 d.counts.advanced，非硬编码展示行数 ⇒ 自动正确。
+T('D2 caption 真实解数=1（task-80 去重后，原 2 为重复对）', solTotal(d,true)===1, solTotal(d,true));
 
 console.log('[case] 开关关闭（不泄题、口径仍一致）');
 const linesOff=buildLines(d,false).map(renderItem);

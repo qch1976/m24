@@ -24,3 +24,6 @@ tools/verify/out-bench-*.json
 
 # selftest/ 目录运行产物（该目录下 .log 均为脚本输出，无有意保留项）
 selftest/*.log
+
+# task-80: tools/verify/gen-input06-recip-seeds.mjs 的运行产物（任意目录），不入库
+input06-recip-seeds.json

@@ -74,7 +74,21 @@ export const ZERO_NODE = { op: 'zero' };
 function isIdentFactor(x) {
   return (x.op === 'num' && x.card === 1) || x.op === 'one';
 }
-const isZeroTerm = (x) => x.op === 'zero';
+// task-80 反例 2（±0 等价）：旧实现仅判 op==='zero'（合成 ZERO_NODE），
+//   而王（牌面 0）走 numLeaf(0) ⇒ {op:'num', card:0}，从不被命中 ⇒ 0 项被保留进链，
+//   且 net=+1/-1 使 (12+12)+0 与 (12+12)-0 分裂为两键。
+//   数学依据：x+0 = x-0 = x（加法恒等元，且 0 的相反数仍为 0），与 0 所在位置/符号无关。
+//
+//   ★ 进一步（边界）：不仅叶子 0，「求值为 0 的整个子树」也是加法恒等元。
+//   否则 (12+12)+(0×2) 与 (12+12)-(0×2) 仍会分裂（子树 op='*' 不被形状判据命中）。
+//   ⚙️ 改用【值】判据：evalNode(x) === 0。仅用于【加减项】位置（调用方 rebuildAddSub），
+//      乘除因子位置用的是 isIdentFactor，不受影响 ⇒ 12×0 的 0 绝不会被误消。
+const isZeroTerm = (x) => {
+  if (x.op === 'zero') return true;
+  if (x.op === 'num' && x.card === 0) return true;
+  const v = evalNode(x);
+  return v !== null && v.n === 0n;
+};
 
 // 渲染：倒数用 (1/c)，乘除用 * /（内部串）；显示层用 renderDisplay
 export function render(t) {
@@ -268,6 +282,14 @@ export function reduceToFixpoint(node) {
 // ============ 规范键 keySol（方案 §2.6） ============
 // 二元交换律归一（+ * 两操作数按确定性序）+ 全括号 ⇒ 冗余括号天然消除
 // ⚠️ 禁止复用 Solver.toCanonicalKeyV2（会把 [1,2,3,4] 的 52 条初级解压成 3 条）
+// task-80 反例 1（负负得正等价）辅助：返回「差节点取反」后的键。
+//   数学依据：-(a-b) = (b-a)，恒等变换（不引入一元负号，仍是合法二元差）。
+//   仅对 '-' 节点可表达；其余形状返回 null 表示「不可安全取反」。
+function negKeySol(t) {
+  if (t && t.op === '-') return `(- ${keySol(t.b)} ${keySol(t.a)})`;
+  return null;
+}
+
 export function keySol(t) {
   // ★ R1 规则 1（规范 L52）：倒数两种书写形态归一
   //   (1/5)/1 归约后为 ONE/n5，必须与直接 recip(5) 同键
@@ -284,6 +306,19 @@ export function keySol(t) {
     const x = ka <= kb ? ka : kb;
     const y = ka <= kb ? kb : ka;
     return `(${t.op} ${x} ${y})`;
+  }
+  // ★ task-80 反例 1：分子分母同时取反，商不变 ⇒ (-X)/(-Y) ≡ X/Y
+  //   数学依据：∀Y≠0, (-X)/(-Y) = X/Y（分式符号定律）—— 恒等，不依赖具体取值。
+  //   取两种书写形态的字典序最小者作唯一代表（取反是对偶 ⇒ 归一幂等、确定）。
+  //   ⚠️ 必须分子与分母「同时」为差节点才变换：只翻一侧会真的变号，绝不能归一。
+  if (t.op === '/') {
+    const na = negKeySol(t.a);
+    const nb = negKeySol(t.b);
+    if (na !== null && nb !== null) {
+      const orig = `(/ ${ka} ${kb})`;
+      const flip = `(/ ${na} ${nb})`;
+      return orig <= flip ? orig : flip;
+    }
   }
   return `(${t.op} ${ka} ${kb})`; // - / 保序
 }
