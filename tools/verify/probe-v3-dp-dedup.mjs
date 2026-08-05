@@ -1,3 +1,5 @@
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：实测 24 支 probe-v3-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
 // 验证 Developer 提议：bitmask 分层子集 DP + 值级去重（同 bitmask 同值只留 1 代表式）
 // 对比 3 种实现的：耗时 / 解数语义 / R-04.1 基准解命中
 import { performance } from 'node:perf_hooks';

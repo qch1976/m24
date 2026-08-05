@@ -52,3 +52,9 @@ for(const s of [{dealMode:'solvable',advancedCalc:false},{dealMode:'solvable',ad
  const ok=JSON.stringify(w)===JSON.stringify(r); if(!ok)allRt=false;
  console.log(`  ${ok?'✓':'✗'} ${JSON.stringify(w)} → ${JSON.stringify(r)}`);}
 console.log(allRt?'往返幂等：4/4 ✓':'往返幂等：存在不一致 ✗');
+
+// —— task-75：R-07 要求迁移用例 pass>=6 且写入幂等全通 ——
+const migOk = pass >= 6;
+const fail = (migOk ? 0 : 1) + (allRt ? 0 : 1);
+console.log(`[verify-input06-settings-v2] pass=${(migOk?1:0)+(allRt?1:0)} fail=${fail}`);
+process.exit(fail === 0 ? 0 : 1);

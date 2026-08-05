@@ -1,3 +1,5 @@
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：实测 24 支 probe-v3-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
 // R-04.1 基准解命中验证 + R-05 50组随机 P95 benchmark + 剪枝对解数的影响
 import { performance } from 'node:perf_hooks';
 

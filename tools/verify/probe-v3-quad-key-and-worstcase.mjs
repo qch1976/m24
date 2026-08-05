@@ -1,3 +1,5 @@
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：实测 24 支 probe-v3-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
 // 两件事：
 // (1) 裁决 Manager 风险23「去重键 = 四元组 (mask,value,usedAbs,usedRecip)」vs Architect 定稿三元组 (mask,value,usesUnary)
 //     四元组把状态空间×2，必须证明它买到了什么：非空性？分桶供给量？还是纯粹浪费？

@@ -99,6 +99,10 @@ for (const r of results) {
 }
 console.log(`\n总结论：${allPass ? '4/4 全部满足 ✅' : '存在违反 ❌'}`);
 
+// —— task-75：把已算出的 allPass 接到退出码上（此前只打印、永不判红）——
+console.log(`\n[99-verify-r05] pass=${allPass ? 1 : 0} fail=${allPass ? 0 : 1}`);
+process.exit(allPass ? 0 : 1);
+
 // ============ 附：假设"两个 commit 真的各再下移 30 DP"的假设场景 =====
 console.log('\n=== 补充：假设 4041669 + 4d41e8c 真的额外下移 30 DP（总 60 DP）会怎样？===');
 console.log('  假设：PageRenderer offsetY = +60 * scale，AnswerArea 全体 y 再 +30');

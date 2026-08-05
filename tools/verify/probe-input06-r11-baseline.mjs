@@ -1,3 +1,8 @@
+// 人工阅读型调查脚本，非门禁。退出码恒为 0，即使正文打印 ❌ 也不判红；判定权在阅读者。
+// （task-75 哑弹治理：实测 24 支 probe-v3-* 均无非零退出能力，❌/FAIL 全在 console.log 内。）
+// ⚠️ 本脚本 REF 数组为 INPUT-06 §8 已作废旧值（如 [1,5,5,5] 高级解 24、[1,2,3,4] 48），
+//    权威基准见 output/p-mr3h5f2hirbdlr-worker1/171-INPUT06-去重口径规范-定稿.md §基准全表
+//    （已核对该定稿：[1,5,5,5] 高级 24→1、[1,2,3,4] 48→4）。拿本脚本对基准会得到错误结论。
 // R-11④ / R-04.3 / §1.2.3 / R-10④ 基准复现（Architect 独立实现，非 solver 自证）
 import {solveDeck,reduceFix,keySol,cntRecip,render,numLeaf,recipLeaf,sortSolutions,MAX_ITER} from './lib-input06-recip.mjs';
 const REF=[[[1,2,3,4],52,48,15],[[2,3,4,6],24,34,18],[[1,3,4,6],1,30,1],[[1,5,5,5],1,24,1],[[3,3,8,8],1,17,1],
