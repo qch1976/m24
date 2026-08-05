@@ -51,7 +51,56 @@ globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
 globalThis.Image = function () { const i = {}; setTimeout(() => i.onload && i.onload(), 0); return i; };
 
 // ---------- 2) 真实模块（逻辑层不 stub） ----------
-const { default: PageRenderer } = await import('../../js/ui/PageRenderer.js');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 【裸跑自我说明】（task-74 补；模式与 task-72 red1-guard-path.mjs 一致）
+//   本脚本必须挂 ESM hooks 运行。裸跑时报错形式【因平台而异】（task-72 实测）：
+//     Linux   : ERR_MODULE_NOT_FOUND（Cannot find module '.../Components'）
+//     Windows : SyntaxError: Unexpected token 'export' / Cannot use import
+//               statement outside a module（CJS 回退所致，同一缺陷两种表现）
+//   光看这些报错极易误判成「产品代码坏了」，故失败时打印可直接复制的命令行。
+//
+// ⚠️ 本提示【印不出来】的三种情形（规则 19：探测也有地板）：
+//   (a) 若把下方 await import 改回顶层静态 import —— 静态 import 在**链接阶段**
+//       失败，早于任何顶层代码执行，catch 根本不会跑到。故必须保持动态 import。
+//   (b) Node < 18.18：`--import` 本身是未知 flag（`--import` 为双线 backport，
+//       added in v19.0.0 / v18.18.0），Node 在**命令行解析阶段**就退出
+//       （`node: bad option: --import`，exit=9），本文件 JS 压根未执行。
+//   (c) esm-hooks.mjs 自身缺 module.registerHooks 时，由它自己 exit(2) 并打印，
+//       不会走到这里。
+//   ⇒ 这三种情形下真正的读者是**事后翻文件排查的人**，故说明写在源码里。
+// ═══════════════════════════════════════════════════════════════════════════
+const HOOKS_CMD =
+  'node --import ./tester/render-smoke/esm-hooks.mjs tools/verify/p0-render-path.mjs';
+function explainHooksMissing(e) {
+  const msg = String((e && (e.message || e.code)) || e);
+  const isHooksMissing =
+    /ERR_MODULE_NOT_FOUND/.test(msg) ||
+    /ERR_UNKNOWN_FILE_EXTENSION/.test(msg) ||
+    /Cannot use import statement outside a module/.test(msg) ||
+    /Unexpected token 'export'/.test(msg) ||
+    /Failed to load the ES module/.test(msg);
+  if (!isHooksMissing) throw e;   // 真异常原样抛出，绝不吞掉
+  const L = '='.repeat(78);
+  console.error('\n' + L);
+  console.error("[p0-render-path] 🔴 本门禁必须挂 ESM hooks 运行，不能裸跑");
+  console.error(L);
+  console.error('  直接跑这一行即可：\n');
+  console.error('    ' + HOOKS_CMD + '\n');
+  console.error(L);
+  console.error('  原因：产品 js/**.js 用 ESM 语法但 import 不带扩展名，');
+  console.error('        且仓库无 "type":"module" ⇒ Node 按 CJS 解析即报错。');
+  console.error('        hooks 负责补 .js 后缀并强制按 ESM 加载，产品代码字节零改动。');
+  console.error('  环境：node=' + process.version + '  platform=' + process.platform);
+  console.error('  cwd =' + process.cwd());
+  console.error('  原始报错：' + msg.split('\n')[0]);
+  console.error(L + '\n');
+  process.exit(2);
+}
+
+let PageRenderer;
+try { PageRenderer = (await import('../../js/ui/PageRenderer.js')).default; }
+catch (e) { explainHooksMissing(e); }
 const { default: Card } = await import('../../js/core/Card.js');
 // DEAL_STATE 在 PageRenderer.js 内为模块私有（L93，未 export），此处用字面值镁像。
 // 故意不为了测试去改产品代码的封装（不为测试而新增 export）。
