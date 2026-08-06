@@ -43,7 +43,7 @@ const r26 = RS.solve([1, 2, 2, 12], { advancedCalc: true });
 const r26off = RS.solve([1, 2, 2, 12], { advancedCalc: false });
 const bareKey = '(* n12 n2)';
 const advKeys26 = [...r26.advanced.keys()];
-T('A-26d🔴 [1,2,2,12] 高级分区存在 (* n12 n2)|F0M1 键（含%标记）',
+T('A-26d🔴 [1,2,2,12] 高级分区存在 (* n12 n2)|R0F0M1 键（含%标记）',
   advKeys26.some((k) => k.startsWith(bareKey) && k.endsWith('M1')), advKeys26.filter((k) => k.startsWith(bareKey)));
 T('A-26e🔴 primary 分区不含任何展示文本带 % 的解',
   [...r26.primary.values()].every((d) => !String(d).includes('%')),
@@ -85,9 +85,11 @@ T('A-28b☆ 取证：0! 值为 1', V(f(0, 0)) === '1', V(f(0, 0)));
 T('A-28c🔴 标记按原式 ⇒ usedFact 须 true（守 R-03）', RS.countFact(b6) > 0, RS.countFact(b6) > 0);
 // 🔴 真实判据：0! 必须真的出现在某牌组的 advanced 分区
 const r28 = RS.solve([0, 2, 12, 1], { advancedCalc: true });
-const hasFactAdv = [...r28.advanced.keys()].some((k) => /\|F1/.test(k));
+// task-100 A：键后缀由 |F?M? 改为 |R?F?M?（补 usedRecip 维）⇒ 原 /\|F1/ 失配。
+// 改为按定长后缀取 F 位，位序 R→F→M（205 §C-1）。
+const hasFactAdv = [...r28.advanced.keys()].some((k) => /\|R[01]F1M[01]$/.test(k));
 T('A-28d🔴 [0,2,12,1] advanced 中存在 F1 标记的解（0! 计入高级）', hasFactAdv,
-  [...r28.advanced.keys()].filter((k) => /\|F1/.test(k)).slice(0, 3));
+  [...r28.advanced.keys()].filter((k) => /\|R[01]F1M[01]$/.test(k)).slice(0, 3));
 // R-03 反向：1!/2! 不得计入 —— 由枚举期排除保证
 T('A-28e R-03 反向：factEnumerable(1)=false（1! 不枚举）', RS.factEnumerable(1) === false, RS.factEnumerable(1));
 T('A-28f R-03 反向：factEnumerable(2)=false（2! 不枚举）', RS.factEnumerable(2) === false, RS.factEnumerable(2));
@@ -116,8 +118,8 @@ T('A-28h🔴 枚举期排除实证：原式中 1!/2! 退化式出现 0 次（故
 //    ⇒ 只有源码断言判红的变异，等于没有行为证据，必须补。
 const r28b = RS.solve([0, 0, 2, 12], { advancedCalc: true });
 const r28bOff = RS.solve([0, 0, 2, 12], { advancedCalc: false });
-T('A-28i🔴 B6 行为级：[0,0,2,12] 的 (* n12 n2)|F1M0 须在 advanced（fact 被吸收仍置标记）',
-  r28b.advanced.has('(* n12 n2)|F1M0'),
+T('A-28i🔴 B6 行为级：[0,0,2,12] 的 (* n12 n2)|R0F1M0 须在 advanced（fact 被吸收仍置标记）',
+  r28b.advanced.has('(* n12 n2)|R0F1M0'),
   [...r28b.advanced.keys()].filter((k) => k.startsWith('(* n12 n2)')));
 T('A-28j🔴 B6 行为级：primary 不得出现展示带 ! 的解',
   [...r28b.primary.values()].every((d) => !String(d).includes('!')),

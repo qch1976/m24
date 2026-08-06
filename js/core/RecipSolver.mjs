@@ -716,7 +716,20 @@ export function solve(cards, opts) {
       //   ★ 严格粗化（规范 §3.5）：不含高级符号的旧解三标记恒 false，
       //     新增两维不引入新区分度 ⇒ 旧解不被分裂。
       const baseK = keySol(rr.node);
-      const k = (usedFact || usedMod) ? `${baseK}|F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}` : baseK;
+      // ★ C-1 键后缀格式（205 §C-1 正式条款）：
+      //   ① 三标记全 false ⇒ 键【无后缀】= baseK
+      //   ② 任一为 true    ⇒ baseK + "|R{0|1}F{0|1}M{0|1}"，三位【恒拼】，位序固定 R→F→M
+      //   与 INPUT-07 §2.1 五元组 (mask,value,usedRecip,usedFact,usedMod) 后三维同序。
+      // 🔴🔴 C-2 硬约束：全假必须走无后缀分支，改为恒拼 `|R0F0M0` 会破 R-01。
+      //   理由：关闭「高级计算」时三标记恒 false ⇒ 若恒拼则【全部键形态改变】
+      //   ⇒ 关闭态键集合与旧版完全不一致。该改动外观上像「消除特例、代码更整洁」的重构，
+      //   且改完关闭态【不会报错】，只会使键集合整体偏移 —— 属静默破坏，务必不要「顺手清理」。
+      //   守护：C-A1（关闭态无含 | 的键）+ C-A2（全量无 |R0F0M0 字面量）+ C-A3（后缀定长正则）。
+      // 🔴 A（task-100）：usedRecip 补入键后缀。此前仅编 F/M 两维 ⇒ usedRecip 丢维，
+      //   违反 INPUT-06 §1.3 / R-04.3 / INPUT-07 §2.1；属回归修复，非新增维度。
+      const k = (usedRecip || usedFact || usedMod)
+        ? `${baseK}|R${usedRecip ? 1 : 0}F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}`
+        : baseK;
       if (usedRecip || usedFact || usedMod) {
         if (!advanced.has(k)) advanced.set(k, renderDisplay(node));
       } else {
