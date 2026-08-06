@@ -468,9 +468,16 @@ console.log(`  归约式键 : ${RS.keySol(bugRR.node)}`);
 console.log(`  独立复算 : 2%1=0, 0+2=2, 2×12=24 ⇒ ${bugV.n}/${bugV.d}`);
 ck('缺陷取证 该式独立复算 = 24', eq24(Q(bugV.n, bugV.d)));
 
-const bugLeaves = leafCards(bugRR.node).length;
-console.log(`\n  【判据 1】归约式须仍用 4 张牌，实测 ${bugLeaves} 张`);
-ck('🔴缺陷1 归约式保牌性：归约后仍应为 4 张牌', bugLeaves === 4, `实测 ${bugLeaves} 张（4→${bugLeaves}）`);
+// ⚠️ 判据修正（task-95 复核）：原「归约式须 4 叶」判据**已撑销**。
+//   撑销依据（本人独立复核，非采信 Developer 数字）：
+//   关闭态（纯初级、零高级符号）primary 3958 条中有 **514 条（13.0%）**归约键<4 叶，
+//   例 [2,2,3,8] 的 (((2-2)+3)×8) → 键 (* n3 n8) 仅 2 叶。
+//   ⇒ 该判据会误伤大量纯初级解，判据本身不成立。
+//   归约式塔缩（零项/单位因子吸收）是设计行为；**保牌性应验【原式】**。
+const bugLeavesRaw = leafCards(bug).length;
+const bugLeavesRR = leafCards(bugRR.node).length;
+console.log(`\n  【判据 1′】保牌性验【原式】：原式叶子 ${bugLeavesRaw} 张（归约式 ${bugLeavesRR} 张，塔缩属设计行为）`);
+ck('判据1′ 保牌性：原式须 4 张牌各用一次', bugLeavesRaw === 4, `原式实测 ${bugLeavesRaw} 张`);
 
 const bugDeck = [1, 2, 2, 12];
 const bOff = RS.solve(bugDeck, { advancedCalc: false });
