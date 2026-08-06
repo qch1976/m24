@@ -87,13 +87,20 @@ const modInMulSwap = { op: '*', a: RS.modLeaf(3, 1, 7, 0), b: N(2, 2) };
 T('A-6c 乘法链内的 % 仍保序（未被排序交换）', K(modInMul) !== K(modInMulSwap),
   [K(modInMul), K(modInMulSwap)]);
 
-console.log('=== A-7：含 % 且结果 0 的项被 isZeroTerm 消去后 usedMod=false（§2.4 警告）===');
-// 5 + 12%1 = 5 + 0 = 5 ⇒ 消去后归约式不含 mod ⇒ usedMod 必须 false
+console.log('=== A-7（task-95 期望值反转）：零项消去后 usedMod 仍须 true ===');
+// 🔴 架构师 202 号裁定 §2.3：本断言原期望值写错了方向，已反转。
+//   旧：「消去后 usedMod=false（标记在归约后判定）」—— 这是 200 号 §2.4 的规范定性错误
+//   新：标记按【原式】判定 ⇒ usedMod 仍为 true，解落【高级】分区
+//   依据：INPUT-07 §1.3.3「a%1=0 … 均有效，计入高级解」
+//   牌确实被消耗了（原式 4 张全用），符号确实用过，标记不该被抹。
+// ⭐ 注意：去重键仍取归约式（A-7a 保持）—— 键归键、标记归标记。
 const zeroMod = { op: '+', a: N(5, 2), b: RS.modLeaf(12, 0, 1, 1) };
 const rrZ = RS.reduceToFixpoint(zeroMod);
-T('A-7a 5+12%1 归约为 n5', RS.keySol(rrZ.node) === 'n5', RS.keySol(rrZ.node));
-T('A-7b 消去后 usedMod=false（标记在归约后判定）', RS.countMod(rrZ.node) === 0, RS.countMod(rrZ.node));
-T('A-7c 消去前原式确实含 mod（证明确有可消对象）', RS.countMod(zeroMod) === 1, null);
+T('A-7a 归约式仍为 n5（键依旧取归约式，未变）', RS.keySol(rrZ.node) === 'n5', RS.keySol(rrZ.node));
+T('A-7b🔴 归约式确已不含 mod（证明确有可消对象）', RS.countMod(rrZ.node) === 0, RS.countMod(rrZ.node));
+T('A-7c 原式确实含 mod', RS.countMod(zeroMod) === 1, null);
+T('A-7d🔴【期望反转】标记按原式判定 ⇒ usedMod 须 true',
+  RS.countMod(zeroMod) > 0, RS.countMod(zeroMod) > 0);
 
 console.log('=== A-8：a%1、a<b 时 a%b 均计入高级解（M-2/M-3）===');
 T('A-8a 7%1 可枚举', RS.modEnumerable(7, 1) === true, null);

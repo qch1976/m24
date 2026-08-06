@@ -663,12 +663,50 @@ export function solve(cards, opts) {
       const rr = reduceToFixpoint(node);
       if (rr.iters > maxIters) maxIters = rr.iters;
       if (rr.overflow) overflowCount += 1;
-      // ★★ 三标记均必须在归约之后判定（规范 R9 / INPUT-07 §1.4 硬约束）
-      //   退化式 1!/2! 已在归约期被 F-R 剥除 ⇒ usedFact 自然为 false（结构性保证）。
-      //   含 % 且结果 0 的项被 isZeroTerm 消去后 ⇒ usedMod 也自然为 false（规范 §2.4 警告 / A-7）。
-      const usedRecip = countRecip(rr.node) > 0;
-      const usedFact = countFact(rr.node) > 0;
-      const usedMod = countMod(rr.node) > 0;
+      // ============ task-95：标记判定时机（架构师 202 号裁定 §2.2「丙方案」）============
+      // 【键归键，标记归标记】——— 两者取自不同阶段：
+      //   去重键的 value + 结构 → 取【归约式】（去重要认「等价解算同一个」）
+      //   usedFact / usedMod    → 取【原式】（分区要认「玩家实际写了什么符号」）
+      //
+      // 🔴 为什么必须按原式（B1/B2 缺陷根因）：
+      //   `12%1 = 0` 作为加减项会被 isZeroTerm（值判据）吸收 ⇒ 归约式里 % 消失
+      //   ⇒ 按归约式判 usedMod=false ⇒ 含 % 的解落入【初级分区】
+      //   ⇒ 直接违反 INPUT-07 §1.3.3「a%1=0 … 均有效，计入高级解」。
+      //   牌确实被消耗了（原式 4 张全用），符号确实用过，标记不该被抹。
+      //
+      // ★ R-03「1!/2! 不触发高级判定」不依赖归约后判定，而由【枚举期排除】保证：
+      //   §1.2.2 明文 1!/2! 不枚举、§1.3.3 明文 a%a 不枚举。
+      //   实测佐证（全量 2380 组）：fact 节点 76095 个中退化式 1!/2! = 0；
+      //                            mod 节点 150441 个中 a%a = 0。
+      //   ⇒ 退化式压根不会出现在任何原式里，按原式判定不会误置标记。比归约后判定更早更彻底。
+      //
+      // ⚠️⚠️ usedRecip 必须【仍按归约式】——— 这是我实测拦下的一处，与裁定 §2.2 有出入：
+      //   裁定说「三标记均改按原式」，但倒数与阶乘/模的性质不同：
+      //   `1/(1/5)` 与 `12÷(1/2)` 这类【可消去倒数解】原式含 recip、归约后 recip 消失，
+      //   INPUT-06 §1.2.3 + 本文件 L9 明确要求它们【不算高级解】（须与初级解同键丢弃）。
+      //   若 usedRecip 也改按原式，前 400 组就有 8460 条（rawHits 级）可消去倒数解被误升为高级解
+      //   ⇒ 破 INPUT-06 既有验收。故此处仅改 usedFact / usedMod，usedRecip 保持归约式判定。
+      //   （已在 feedback 中向架构师上报此出入，未自行变更需求口径。）
+      // ============ usedRecip：合取判据（task-95 附带修复既有 R-01 残留 4 组）============
+      // ⚠️ 这不是 task-95 的主线缺陷，是 recip 家族的【既有】缺陷（修改前实测同样 4 组红），
+      //    但同属「标记与键口径分裂」，一并修。三个案例逼出唯一可行判据：
+      //
+      //   案例                        原式recip  归约键含r  应归属
+      //   A 12÷(1/2)（可消去倒数解）      1          否       primary（INPUT-06 §1.2.3）
+      //   B (5-1÷5)×5（牌面1作分子）      0          是       primary（只用了÷，非倒数变体）
+      //   C 12÷((1÷4)+(1/4))            1          是       advanced（真用了倒数变体）
+      //
+      //   单看「原式 recip>0」⇒ A 被误升为高级（破 §1.2.3 与 §8 参考数据 advanced 4→6）
+      //   单看「归约键含 r」  ⇒ B 被误升（[1,5,5,5] primary 1→0，破 §6 汇总 34→33）
+      //   ⇒ 必须【合取】：原式确实用了倒数变体，且归约后倒数结构仍存活。
+      //
+      // 🔴 为何需要「归约键含 r」这一侧：牌面 1 作分子时被 isIdentFactor 消去
+      //    ⇒ 节点变 {op:'/', a:{op:'one'}, b:n4}，keySol 渲染为 `r4`（与真 recipLeaf 同键），
+      //    但 countRecip 只数 op==='recip' ⇒ 数不到 ⇒ 该解落 primary，
+      //    而关闭态产不出此键 ⇒ 开启态 primary 多出键 ⇒ 破 R-01（实测 [1,4,4,12] 等 4 组）。
+      const usedRecip = countRecip(node) > 0 && /(^|[^a-z])r\d+/.test(keySol(rr.node));
+      const usedFact = countFact(node) > 0;        // ← 改为原式（B6：0! 被乘一吸收）
+      const usedMod = countMod(node) > 0;          // ← 改为原式（B1/B2：% 得 0 被零项吸收）
       const hadRecip = countRecip(node) > 0;
       // ★★ 裁定①：三分区统一用**归约式键**。
       //   旧实现 advanced/primary 用 keySol(node)（原式键）、cancelled 用 keySol(rr.node)（归约式键），
