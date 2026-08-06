@@ -35,6 +35,8 @@ export const TokenType = {
   LEFT_PAREN: 'left_paren',
   RIGHT_PAREN: 'right_paren',
   RECIP: 'recip',        // ★ INPUT-06 新增：倒数 1/x（前缀单目，操作数只能是叶子）
+  FACT: 'fact',          // ★ INPUT-07 新增：阶乘 n!（后缀单目，限叶子）
+  MOD: 'mod',            // ★ INPUT-07 新增：模 a%b（中缀双目，两侧限叶子）
 };
 
 const OP_DISPLAY = { '+': '+', '-': '-', '*': '×', '/': '÷' };
@@ -111,6 +113,11 @@ export function layoutFor(advancedCalc) {
 const BTN_BG_ADV = '#9D5BFA';         // 紫，与初级蓝 #5B7CFA 区分
 const BTN_BG_BACK = 'rgba(255,255,255,0.18)';
 const ADV_KEY_LABEL = '1/x';
+// INPUT-07：阶乘 / 模 两键标签
+// ★ 使用 advRow 已有的 3 列空间（1/x 居中，左右两列原本空置），**不重排布局**。
+// 依据 INPUT-07 §3「答题区新增 ! % 两按钮，使用现有空间，不重排布局」。
+const FACT_KEY_LABEL = 'n!';
+const MOD_KEY_LABEL = '%';
 
 // 答题区滑入动效（§1.2.1 + 方案 §1.3）
 export const SLIDE_MS = 220;          // 200~250ms 区间居中，距 300ms 卡顿线余 36%
@@ -161,6 +168,10 @@ export function checkLegality(tokens) {
       if (prev && prev.type === TokenType.RECIP) {
         return { legal: false, allCardsUsed: false, reason: 'recip_dangling' };
       }
+      // ★ INPUT-07：% 后面不能直接跟运算符
+      if (prev && prev.type === TokenType.MOD) {
+        return { legal: false, allCardsUsed: false, reason: 'mod_dangling' };
+      }
     } else if (t.type === TokenType.RECIP) {
       // ★ INPUT-06：recip 前置位置与数字相同（不得紧跟数字 / 右括号，避免隐式乘）
       if (prev && (prev.type === TokenType.NUMBER || prev.type === TokenType.RIGHT_PAREN)) {
@@ -169,8 +180,38 @@ export function checkLegality(tokens) {
       if (prev && prev.type === TokenType.RECIP) {
         return { legal: false, allCardsUsed: false, reason: 'recip_operand_not_leaf' };
       }
+      // ★ INPUT-07 §1.5 通则：不得对 ! 的输出取倒数（如 3!1/ 这类序列）
+      if (prev && prev.type === TokenType.FACT) {
+        return { legal: false, allCardsUsed: false, reason: 'implicit_mul' };
+      }
+    } else if (t.type === TokenType.FACT) {
+      // ★ INPUT-07 §1.2.1：! 是后缀，前面必须是数字或右括号（冗余括号合法）
+      if (!prev) return { legal: false, allCardsUsed: false, reason: 'fact_dangling' };
+      if (prev.type === TokenType.OPERATOR || prev.type === TokenType.LEFT_PAREN ||
+          prev.type === TokenType.RECIP || prev.type === TokenType.MOD) {
+        return { legal: false, allCardsUsed: false, reason: 'fact_dangling' };
+      }
+      // ★ §1.5 通则：(3!)! —— ! 不得作用于 ! 的输出
+      if (prev.type === TokenType.FACT) {
+        return { legal: false, allCardsUsed: false, reason: 'fact_operand_not_leaf' };
+      }
+    } else if (t.type === TokenType.MOD) {
+      // ★ INPUT-07 §1.3.1：% 是中缀，左侧必须已有数字/右括号
+      if (!prev) return { legal: false, allCardsUsed: false, reason: 'mod_dangling' };
+      if (prev.type === TokenType.OPERATOR || prev.type === TokenType.LEFT_PAREN ||
+          prev.type === TokenType.RECIP) {
+        return { legal: false, allCardsUsed: false, reason: 'mod_dangling' };
+      }
+      // ★ §1.5 通则：(7%3)%2 与 (3!)%2 —— % 左侧不得是高级符号输出
+      if (prev.type === TokenType.MOD || prev.type === TokenType.FACT) {
+        return { legal: false, allCardsUsed: false, reason: 'mod_operand_not_leaf' };
+      }
     } else if (t.type === TokenType.LEFT_PAREN) {
       if (prev && (prev.type === TokenType.NUMBER || prev.type === TokenType.RIGHT_PAREN)) {
+        return { legal: false, allCardsUsed: false, reason: 'implicit_mul' };
+      }
+      // ★ INPUT-07：! 后不得紧跟左括号（隐式乘）
+      if (prev && prev.type === TokenType.FACT) {
         return { legal: false, allCardsUsed: false, reason: 'implicit_mul' };
       }
     } else if (t.type === TokenType.RIGHT_PAREN) {
@@ -182,8 +223,16 @@ export function checkLegality(tokens) {
       if (prev.type === TokenType.RECIP) {
         return { legal: false, allCardsUsed: false, reason: 'recip_dangling' };
       }
+      // ★ INPUT-07：“7%)” 非法
+      if (prev.type === TokenType.MOD) {
+        return { legal: false, allCardsUsed: false, reason: 'mod_dangling' };
+      }
     } else if (t.type === TokenType.NUMBER) {
       if (prev && (prev.type === TokenType.RIGHT_PAREN || prev.type === TokenType.NUMBER)) {
+        return { legal: false, allCardsUsed: false, reason: 'implicit_mul' };
+      }
+      // ★ INPUT-07：! 后不得紧跟数字（隐式乘）
+      if (prev && prev.type === TokenType.FACT) {
         return { legal: false, allCardsUsed: false, reason: 'implicit_mul' };
       }
     }
@@ -191,7 +240,8 @@ export function checkLegality(tokens) {
 
   const last = tokens[tokens.length - 1];
   if (last.type === TokenType.OPERATOR || last.type === TokenType.LEFT_PAREN ||
-      last.type === TokenType.RECIP) {   // ★ INPUT-06：以 1/ 结尾不完整
+      last.type === TokenType.RECIP ||    // ★ INPUT-06：以 1/ 结尾不完整
+      last.type === TokenType.MOD) {      // ★ INPUT-07：以 % 结尾不完整
     return { legal: false, allCardsUsed: false, reason: 'op_end' };
   }
 
@@ -223,6 +273,10 @@ export function formatTokens(tokens, cardValues) {
       parts.push(')');
     } else if (t.type === TokenType.RECIP) {
       parts.push('1/');   // ★ INPUT-06：展示为 1/ 前缀，与 §5.1 "(1/" 计数口径一致
+    } else if (t.type === TokenType.FACT) {
+      parts.push('!');    // ★ INPUT-07：后缀记号
+    } else if (t.type === TokenType.MOD) {
+      parts.push('%');    // ★ INPUT-07 R-12：% 为唯一记号，与按钮/[提示]/[答案] 三处一致
     }
   }
   return parts.join('');
@@ -483,18 +537,24 @@ export default class AnswerArea {
 
     // INPUT-06：高级键行（1/x 居中，占 3 列中的中间列）
     //   开关关闭时 L.advRow === null，整行不渲染也不入命中区
+    // INPUT-07：同行左/右两列接入 n! 与 %，复用现有 3 列空间，**不重排布局**
+    //   ⇒ 行高/行 y/区域高度均不变，layoutFor() 零改动，不影响下方各行与安全区。
     if (L.advRow) {
       const advRow = L.advRow;
       const advW = advRow.w / advRow.cols;
-      const btn = S({
-        x: advRow.x + advW,   // 中间列
-        y: advRow.y,
-        w: advW,
-        h: advRow.h,
-      });
       const disabled = !this.enabled;
+      // 列 0：n!（阶乘，后缀）
+      const btnF = S({ x: advRow.x, y: advRow.y, w: advW, h: advRow.h });
+      this._drawButton(ctx, btnF, FACT_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+      this._buttonRects.push({ key: 'adv:fact', kind: 'adv', advKey: 'fact', disabled, ...btnF });
+      // 列 1（1/x 居中，保持 INPUT-06 原位）
+      const btn = S({ x: advRow.x + advW, y: advRow.y, w: advW, h: advRow.h });
       this._drawButton(ctx, btn, ADV_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
-      this._buttonRects.push({ key: 'adv:recip', kind: 'adv', disabled, ...btn });
+      this._buttonRects.push({ key: 'adv:recip', kind: 'adv', advKey: 'recip', disabled, ...btn });
+      // 列 2：%（模，中缀）
+      const btnM = S({ x: advRow.x + advW * 2, y: advRow.y, w: advW, h: advRow.h });
+      this._drawButton(ctx, btnM, MOD_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+      this._buttonRects.push({ key: 'adv:mod', kind: 'adv', advKey: 'mod', disabled, ...btnM });
     }
 
     // 控制键区
@@ -587,6 +647,9 @@ export default class AnswerArea {
     }
     if (btn.kind === 'adv') {
       // ★ INPUT-06：1/x 前置单目 token
+      // ★ INPUT-07：n! 后缀单目、% 中缀双目
+      if (btn.advKey === 'fact') { this.addToken({ type: TokenType.FACT }); return { action: 'changed' }; }
+      if (btn.advKey === 'mod') { this.addToken({ type: TokenType.MOD }); return { action: 'changed' }; }
       this.addToken({ type: TokenType.RECIP });
       return { action: 'changed' };
     }

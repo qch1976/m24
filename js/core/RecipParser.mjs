@@ -5,19 +5,27 @@
 // 设计决策：Solver.js 的 Shunting-yard 保留字节不动（R-09 保护 INPUT-05 回归）；
 //   本 parser 作为「1/x 语义校验 + AST 构造」的独立前置层。
 //
-// grammar（仅 1 条新规则）：
+// grammar（INPUT-06 1 条 + INPUT-07 2 条）：
 //   expr      := term (('+' | '-') term)*
-//   term      := unary (('*' | '/') unary)*
-//   unary     := 'RECIP' atomLeaf        ← ★ 唯一新增；走 atomLeaf 而非 atom
-//              | atom
-//   atomLeaf  := '(' atomLeaf ')'        ← 冗余括号递归剥离，不误伤 1/(3) 1/((3))
-//              | NUMBER                  ← 只能落到数字叶子
+//   term      := modish (('*' | '/') modish)*
+//   modish    := unary ('%' unary)?          ← ★ INPUT-07；不可链式 ⇒ (7%3)%2 天然拒收
+//   unary     := 'RECIP' atomLeaf            ← ★ INPUT-06；走 atomLeaf 而非 atom
+//              | postfix
+//   postfix   := atom '!'*                   ← ★ INPUT-07；'!' 后缀，限叶子由 mkFact 校验
+//   atomLeaf  := '(' atomLeaf ')'            ← 冗余括号递归剥离，不误伤 1/(3) 1/((3))
+//              | NUMBER
 //   atom      := '(' expr ')' | NUMBER
 //
 // atomLeaf 分支即实现 §1.2.2「1/x 子节点必须是数字叶子」，
 // 任何运算符出现在 RECIP 操作数内即报 recip_operand_not_leaf。
-
-import { numLeaf, recipLeaf, F, addF, subF, mulF, divF, is24F, countRecip } from './RecipSolver.mjs';
+//
+// 🔴 INPUT-07 §1.5【修饰不可叠加通则】（项目主 2026-08-06 13:07 裁定）：
+//    任一高级符号不得作用于另一高级符号的输出（带修饰的叶子不再是叶子）。
+//    实现：单一判据 isRawLeaf()，覆盖 9 行禁止矩阵（§1.5.2），不写 9 个特判。
+import {
+  numLeaf, recipLeaf, factLeaf, modLeaf, F, addF, subF, mulF, divF, is24F,
+  countRecip, countFact, countMod, factBig, isFactDegenerate, FACT_MAX_CARD,
+} from './RecipSolver.mjs';
 
 export const ERR = {
   RECIP_OPERAND_NOT_LEAF: 'recip_operand_not_leaf',
@@ -29,6 +37,13 @@ export const ERR = {
   EMPTY: 'empty',
   CARD_REUSED: 'card_reused',
   DIVISION_BY_ZERO: 'division_by_zero',
+  // INPUT-07
+  FACT_OPERAND_NOT_LEAF: 'fact_operand_not_leaf',
+  FACT_DANGLING: 'fact_dangling',
+  MOD_OPERAND_NOT_LEAF: 'mod_operand_not_leaf',
+  MOD_DANGLING: 'mod_dangling',
+  MOD_BY_ZERO: 'mod_by_zero',
+  MOD_NOT_INTEGER: 'mod_not_integer',
 };
 
 export const ERR_MSG = {
@@ -41,6 +56,12 @@ export const ERR_MSG = {
   [ERR.EMPTY]: '请先输入算式',
   [ERR.CARD_REUSED]: '每张牌只能用一次',
   [ERR.DIVISION_BY_ZERO]: '算式包含除零，无法求值',
+  [ERR.FACT_OPERAND_NOT_LEAF]: '阶乘只能作用于牌面数字',
+  [ERR.FACT_DANGLING]: '阶乘前面需要一个数字',
+  [ERR.MOD_OPERAND_NOT_LEAF]: '取模两侧只能是牌面数字',
+  [ERR.MOD_DANGLING]: '取模需要两个数字',
+  [ERR.MOD_BY_ZERO]: '不能对 0 取模',
+  [ERR.MOD_NOT_INTEGER]: '取模两侧必须是非负整数',
 };
 
 function fail(code, detail) {
@@ -49,6 +70,22 @@ function fail(code, detail) {
   e.code = code;
   if (detail !== undefined) e.detail = detail;
   throw e;
+}
+
+// ============ 🔴 INPUT-07 §1.5.3：修饰不可叠加的单一判据 ============
+// isRawLeaf(node) := node 是数字叶子，且未被任何高级符号（Recip/Fact/Mod）包裹
+//
+// 一条判据覆盖规范 §1.5.2 全部 9 行禁止矩阵，不写 9 个特判：
+//   行1 1/(1/3)  行2 1/(3!)   行3 1/(7%3)
+//   行4 (1/3)!    行5 (3!)!    行6 (7%3)!
+//   行7 7%(1/3)   行8 7%(3!)   行9 (7%3)%2
+// ⚠️ 矩阵为 9 行非 8 行：3 个符号全组合 3×3=9，任务书原列 8 个遗漏了
+//    「倒数×倒数」（1/(1/3)）—— 规范 §1.5.2 已指出。本判据天然覆盖。
+//
+// ★ 冗余括号不改变叶子性质（§1.5.4）：parser 的 atom()/atomLeaf() 已在构造时
+//   剥除括号（括号不产生 AST 节点），故此处无需再剥 ⇒ (4)!、((4))!、(7)%(3) 不误伤。
+function isRawLeaf(node) {
+  return !!node && node.op === 'num';
 }
 
 // ============ Parser 主体 ============
@@ -86,20 +123,44 @@ class P {
     return node;
   }
 
-  // term := unary (('*'|'/') unary)*
+  // term := modish (('*'|'/') modish)*
   term() {
-    let node = this.unary();
+    let node = this.modish();
     for (;;) {
       if (this.isOp('*') || this.isOp('/')) {
         const op = this.next().value;
-        const rhs = this.unary();
+        const rhs = this.modish();
         node = { op, a: node, b: rhs };
       } else break;
     }
     return node;
   }
 
-  // unary := 'RECIP' atomLeaf | atom
+  // ============ INPUT-07 §1.3：modish := unary ('%' unary)? ============
+  // ★ 写成 `?`（最多一次）而非 `*`（可重复），使 (7%3)%2 在语法层即无法接受 ——
+  //   第二个 % 会落到 trailing_token / 或因左侧不是原始叶子而被 isRawLeaf 拒收。
+  // 🔴 两侧必须是未经任何高级符号修饰的原始牌面叶子（§1.3.1 + §1.5 通则）。
+  modish() {
+    const left = this.unary();
+    const t = this.peek();
+    if (t && t.type === 'mod') {
+      this.next();
+      const nxt = this.peek();
+      if (!nxt || nxt.type === 'operator') fail(ERR.MOD_DANGLING);
+      const right = this.unary();
+      // 通则判据：两侧均需为未修饰的原始叶子
+      //   ⇒ 拒收 (3+4)%3、7%(1+2)、(7%3)%2、(3!)%2、7%(3!)、(1/3)%2、7%(1/3)
+      if (!isRawLeaf(left) || !isRawLeaf(right)) fail(ERR.MOD_OPERAND_NOT_LEAF);
+      // §1.3.2 合法性：非负整数、b>0（含王牌 0 作模数 ⇒ 拒）
+      if (!Number.isInteger(left.card) || left.card < 0) fail(ERR.MOD_NOT_INTEGER);
+      if (!Number.isInteger(right.card) || right.card < 0) fail(ERR.MOD_NOT_INTEGER);
+      if (right.card === 0) fail(ERR.MOD_BY_ZERO);
+      return modLeaf(left.card, left.slot, right.card, right.slot);
+    }
+    return left;
+  }
+
+  // unary := 'RECIP' atomLeaf | postfix
   unary() {
     const t = this.peek();
     if (t && t.type === 'recip') {
@@ -108,9 +169,28 @@ class P {
       if (!nxt) fail(ERR.RECIP_DANGLING);
       if (nxt.type === 'operator') fail(ERR.RECIP_DANGLING);
       const leaf = this.atomLeaf(); // ★ 只接受叶子（含冗余括号）
+      // 🔴 §1.5 矩阵行 1/2/3：倒数不得作用于倒数/阶乘/模的输出。
+      //    atomLeaf 已保证返回 num 叶子，但显式再查一次以防后续改动遗漏（且覆盖 1/(3!) 路）。
+      if (!isRawLeaf(leaf)) fail(ERR.RECIP_OPERAND_NOT_LEAF);
       return recipLeaf(leaf.card, leaf.slot);
     }
-    return this.atom();
+    return this.postfix();
+  }
+
+  // ============ INPUT-07 §1.2：postfix := atom '!'* ============
+  // ★ 循环吃掉连续的 '!'，使 (3!)! 能被【语义】拒收而非【语法】报错 ——
+  //   第二次循环时 base 已是 fact 节点，isRawLeaf 失败 ⇒ fact_operand_not_leaf（语义错误，提示更准）。
+  //   若写成只吃一个，(3!)! 会报 trailing_token（「格式不正确」），对用户无指导意义。
+  postfix() {
+    let base = this.atom();
+    while (this.peek() && this.peek().type === 'fact') {
+      this.next();
+      // 🔴 §1.2.1 + §1.5 矩阵行 4/5/6：! 子节点必为未修饰的数字叶子
+      //    ⇒ 拒收 (2+2)!、(3×2)!、(4!)!、(1/3)!、(7%3)!
+      if (!isRawLeaf(base)) fail(ERR.FACT_OPERAND_NOT_LEAF);
+      base = factLeaf(base.card, base.slot);
+    }
+    return base;
   }
 
   // atomLeaf := '(' atomLeaf ')' | NUMBER
@@ -191,6 +271,22 @@ export function evalAst(ast) {
       if (t.arg.card === 0) { divZero = true; return null; }
       return F(1, t.arg.card);
     }
+    // INPUT-07：阶乘（限叶子，parser 已保证 arg 为 num）
+    if (t.op === 'fact') {
+      if (!t.arg || t.arg.op !== 'num') return null;
+      if (!Number.isInteger(t.arg.card) || t.arg.card < 0) return null;
+      return F(factBig(t.arg.card));
+    }
+    // INPUT-07：模（限叶子，§1.3.2 非负整数 + b>0）
+    if (t.op === 'mod') {
+      const ma = rec(t.a);
+      const mb = rec(t.b);
+      if (ma === null || mb === null) return null;
+      if (ma.d !== 1n || mb.d !== 1n) return null;
+      if (ma.n < 0n) return null;
+      if (mb.n <= 0n) { divZero = true; return null; }   // 对 0 取模 ⇒ 求值失败
+      return F(ma.n % mb.n);
+    }
     const a = rec(t.a);
     const b = rec(t.b);
     if (a === null || b === null) return null;
@@ -221,8 +317,10 @@ export function evalAst(ast) {
  */
 export function checkUserAnswer(tokens, cardValues, opts) {
   const advancedCalc = !!(opts && opts.advancedCalc);
-  // 高级计算关闭时不允许出现 recip token（开关关闭 = INPUT-05 计算行为）
-  if (!advancedCalc && (tokens || []).some((t) => t && t.type === 'recip')) {
+  // 高级计算关闭时不允许出现任何高级 token（开关关闭 = INPUT-05 计算行为）
+  // INPUT-07 §1.1：单一开关控制全部高级符号（倒数、阶乘、模）
+  const ADV_TOKENS = ['recip', 'fact', 'mod'];
+  if (!advancedCalc && (tokens || []).some((t) => t && ADV_TOKENS.indexOf(t.type) >= 0)) {
     return { pass: false, reason: ERR.UNEXPECTED_TOKEN, message: '请先在设置中开启「高级计算」' };
   }
   const pr = parse(tokens, cardValues);
@@ -234,6 +332,9 @@ export function checkUserAnswer(tokens, cardValues, opts) {
   const walk = (t) => {
     if (t.op === 'num') { slots.push(t.slot); return; }
     if (t.op === 'recip') { slots.push(t.arg.slot); return; }
+    // INPUT-07：fact 占 1 牌、mod 占 2 牌
+    if (t.op === 'fact') { slots.push(t.arg.slot); return; }
+    if (t.op === 'mod') { slots.push(t.a.slot); slots.push(t.b.slot); return; }
     walk(t.a); walk(t.b);
   };
   walk(pr.ast);
@@ -246,11 +347,27 @@ export function checkUserAnswer(tokens, cardValues, opts) {
   }
   // usedRecip：1/1 不计（§4.7 + R-04.1）；此处看原式（用户输入路径的"是否用了高级符号"标记）
   const usedRecip = countRecip(pr.ast) > 0;
+  // INPUT-07：阶乘/模标记。退化式 1!/2! 不得触发"使用高级符号"判定（R-03），
+  //   也不计牌面 ≥7 的 !（§1.2.2：UI 允许输入但不据此判定）。
+  const countFactEff = (t) => {
+    if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero' || t.op === 'recip') return 0;
+    if (t.op === 'fact') {
+      const c = t.arg && t.arg.card;
+      return (isFactDegenerate(c) || c > FACT_MAX_CARD) ? 0 : 1;
+    }
+    if (t.op === 'mod') return 0;
+    return countFactEff(t.a) + countFactEff(t.b);
+  };
+  const usedFact = countFactEff(pr.ast) > 0;
+  const usedMod = countMod(pr.ast) > 0;
+  const usedAdv = usedRecip || usedFact || usedMod;
   if (ev.is24) {
-    return { pass: true, ast: pr.ast, value: ev.value, usedRecip };
+    return { pass: true, ast: pr.ast, value: ev.value, usedRecip, usedFact, usedMod, usedAdv };
   }
   const label = ev.value.d === 1n ? String(ev.value.n) : `${ev.value.n}/${ev.value.d}`;
-  return { pass: false, reason: 'not_24', actualLabel: label, value: ev.value, usedRecip };
+  return { pass: false, reason: 'not_24', actualLabel: label, value: ev.value, usedRecip, usedFact, usedMod, usedAdv };
 }
 
-export default { parse, evalAst, checkUserAnswer, ERR, ERR_MSG };
+export default {
+  parse, evalAst, checkUserAnswer, ERR, ERR_MSG,
+};

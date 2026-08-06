@@ -142,13 +142,19 @@ export default class PageRenderer {
 
   // ============ INPUT-06：高级计算枚举（§1.4 竞态） ============
   // 枚举不得阻塞答题区滑入动效与主界面渲染：用 setTimeout 让出一帧
+  // ★ INPUT-07：必须把 advancedCalc 开关透传给 solve()，否则阶乘/模解永远不会出现在
+  //   [提示]/[答案] 里（R-01 端到端 + R-12 三处一致的前提）。
+  //   solve() 三态：不传 opts=INPUT-06 兼容态；{advancedCalc:true}=含阶乘+模；false=纯初级。
+  //   ⭐ 快照 advancedCalc：枚举是异步的，若在 run() 里读 this._advancedCalc，
+  //      用户在让出的这一帧里掉开关会导致枚举口径与 UI 不一致（§1.4 竞态）。
   _computeRecipAsync(values) {
     this._recipResult = null;
     this._recipDisplay = null;
     this._recipComputing = true;
+    const advancedCalc = this._advancedCalc;
     const run = () => {
       try {
-        const res = RecipSolver.solve(values);
+        const res = RecipSolver.solve(values, { advancedCalc });
         this._recipResult = res;
         this._recipDisplay = RecipSolver.buildDisplay(res, RecipSolver.DISPLAY_LIMIT);
       } catch (e) {

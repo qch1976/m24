@@ -55,12 +55,86 @@ export function recipLeaf(card, slot) {
   return { op: 'recip', arg: numLeaf(card, slot), v: F(1, card) };
 }
 
+// ============ INPUT-07：阶乘 / 模 ============
+// 依据：INPUT-07 §1.2 / §1.3 + 架构师 200 号规范 §1.1/§1.2/§4.1/§4.2
+//
+// 阶乘上限：§1.2.2 仅牌面 ≤6 （6!=720）。牌面 ≥7 不枚举。
+export const FACT_MAX_CARD = 6;
+
+// 精确阶乘（BigInt，零浮点）
+export function factBig(n) {
+  let r = 1n;
+  for (let i = 2n; i <= BigInt(n); i += 1n) r *= i;
+  return r;
+}
+
+// §1.2.3 退化判据：【牌面值不变即退化】⇒ 仅 1!=1、2!=2
+// ⚠️ 易错点（规范 F-3）：0! = 1，值 0→1 已变 ⇒ **有效**，不是退化。
+//    若照「小数字都是退化」直觉写会错剔 0!。
+export function isFactDegenerate(card) {
+  return factBig(card) === BigInt(card);
+}
+
+// 阶乘叶子是否可枚举：牌面 ≤6（§1.2.2）且非退化（§1.2.3）
+// ⇒ 有效阶乘仅 5 个：0!=1、3!=6、4!=24、5!=120、6!=720（规范 §4.1）
+export function factEnumerable(card) {
+  if (!Number.isInteger(card) || card < 0) return false;
+  if (card > FACT_MAX_CARD) return false;
+  return !isFactDegenerate(card);
+}
+
+export function factLeaf(card, slot) {
+  return { op: 'fact', arg: numLeaf(card, slot), v: F(factBig(card)) };
+}
+
+// §1.3.2 模合法性：两侧非负整数、b>0
+// §1.3.3 退化：唯一无效式是 a%a（可由 a-a 等价替代）
+// ⚠️ a%1=0、a<b 时 a%b=a 均**有效**，必须计入高级解（规范 M-2/M-3）。
+//    旧口径「54 组/32%」已作废；新口径有效组合 = 182 − 13 = **169 组**。
+export function modEnumerable(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+  if (a < 0 || b <= 0) return false;   // b=0 非法（含王牌 0 作模数）
+  if (a === b) return false;           // M-1 枚举期剔除（判据是【值】相等，非 mask）
+  return true;
+}
+
+export function modLeaf(aCard, aSlot, bCard, bSlot) {
+  return {
+    op: 'mod',
+    a: numLeaf(aCard, aSlot),
+    b: numLeaf(bCard, bSlot),
+    v: F(BigInt(aCard) % BigInt(bCard)),
+  };
+}
+
+// countFact / countMod：与 countRecip 同构，用于【归约后】判定三标记（规范 §2.2）
+// ★ 退化式 1!/2! 的 usedFact=false **不靠特判**：它们在归约期已被 F-R 剥除，
+//   归约后 AST 里根本不存在 fact 节点 ⇒ 自然为 false（结构性保证，比特判可靠）。
+export function countFact(t) {
+  if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
+  if (t.op === 'recip') return 0;
+  if (t.op === 'fact') return 1;
+  if (t.op === 'mod') return 0;   // mod 两侧限原始叶子，不可能内嵌 fact
+  return countFact(t.a) + countFact(t.b);
+}
+
+export function countMod(t) {
+  if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
+  if (t.op === 'recip') return 0;
+  if (t.op === 'fact') return 0;
+  if (t.op === 'mod') return 1;
+  return countMod(t.a) + countMod(t.b);
+}
+
 // countRecip：统计有效 recip 节点数
 // ★ 方案 §4.7：arg.card === 1 的 recip（即 1/1）一律跳过 —— 1/1 恒等，
 //   不得使表达式被判定为"用了高级符号"（R-04.1）
 export function countRecip(t) {
   if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
   if (t.op === 'recip') return t.arg && t.arg.card === 1 ? 0 : 1;
+  // INPUT-07：fact 的 arg 恒为原始数字叶子（限叶子），内部不可能含 recip
+  if (t.op === 'fact') return 0;
+  if (t.op === 'mod') return 0;   // mod 两侧同为原始叶子
   return countRecip(t.a) + countRecip(t.b);
 }
 
@@ -96,15 +170,20 @@ export function render(t) {
   if (t.op === 'one') return '1';
   if (t.op === 'zero') return '0';
   if (t.op === 'recip') return `(1/${t.arg.card})`;
+  if (t.op === 'fact') return `${t.arg.card}!`;
+  if (t.op === 'mod') return `(${render(t.a)}%${render(t.b)})`;
   return `(${render(t.a)}${t.op}${render(t.b)})`;
 }
 
 // 显示层：× ÷ 替换，倒数保持 1/c 形态（与 §5.1 countAdvSymbols 的 "(1/" 计数口径一致）
+// INPUT-07 R-12：`%` 为唯一记号 —— 按钮 / [提示] / [答案] 三处一致，此处即 [提示]/[答案] 来源
 export function renderDisplay(t) {
   if (t.op === 'num') return String(t.card);
   if (t.op === 'one') return '1';
   if (t.op === 'zero') return '0';
   if (t.op === 'recip') return `(1/${t.arg.card})`;
+  if (t.op === 'fact') return `${t.arg.card}!`;
+  if (t.op === 'mod') return `(${renderDisplay(t.a)}%${renderDisplay(t.b)})`;
   const op = t.op === '*' ? '×' : t.op === '/' ? '÷' : t.op;
   return `(${renderDisplay(t.a)}${op}${renderDisplay(t.b)})`;
 }
@@ -116,6 +195,21 @@ export function evalNode(t) {
   if (t.op === 'one') return F(1n);
   if (t.op === 'zero') return F(0n);
   if (t.op === 'recip') return t.arg.card === 0 ? null : F(1, t.arg.card);
+  // INPUT-07：阶乘（限叶子 ⇒ arg 必为 num）
+  if (t.op === 'fact') {
+    if (!t.arg || t.arg.op !== 'num') return null;
+    if (!Number.isInteger(t.arg.card) || t.arg.card < 0) return null;
+    return F(factBig(t.arg.card));
+  }
+  // INPUT-07：模（限叶子 ⇒ 两侧必为 num；b>0；非负整数）
+  if (t.op === 'mod') {
+    const ma = evalNode(t.a);
+    const mb = evalNode(t.b);
+    if (ma === null || mb === null) return null;
+    if (ma.d !== 1n || mb.d !== 1n) return null;   // §1.3.2 非负整数判据
+    if (ma.n < 0n || mb.n <= 0n) return null;      // b=0 非法
+    return F(ma.n % mb.n);
+  }
   const a = evalNode(t.a);
   const b = evalNode(t.b);
   if (a === null || b === null) return null;
@@ -216,6 +310,23 @@ export function reduceOnce(node) {
   if (node.op === 'num' || node.op === 'recip' || node.op === 'one' || node.op === 'zero') {
     return { node, changed: false };
   }
+  // ============ INPUT-07 规则 F-R：阶乘退化剥除（规范 §3.1）============
+  // 变换：Fact(leaf(n)) → leaf(n)，当且仅当 n! === n（即 n ∈ {1,2}）
+  // 数学依据：1!=1、2!=2 值恒等；value/mask 均不变、单向可达 ⇒ R-08 三条件全满足。
+  // 幂等：剥除后为纯叶子，二次应用匹配失败 ⇒ reduce(reduce(x))===reduce(x)。
+  // ★ n=0 不匹配本规则（0!=1≠0）⇒ 正确保留，对应 F-3。
+  if (node.op === 'fact') {
+    if (node.arg && node.arg.op === 'num' && isFactDegenerate(node.arg.card)) {
+      return { node: node.arg, changed: true };
+    }
+    return { node, changed: false };
+  }
+  // ============ INPUT-07：% 节点为原子（规范 §2.4 / §3.4）============
+  // 🔴 不拉平、不下钻、不排序。两侧恒为原始牌面叶子（§1.3.1），无可归约内容。
+  //    若误将 % 并入乘除链排序归一 ⇒ 等于交换两侧 ⇒ 与上轮 (8-6)/2 vs (6-8)/2 同型的错并。
+  if (node.op === 'mod') {
+    return { node, changed: false };
+  }
   if (node.op === '+' || node.op === '-') {
     // ★ R3+R5（裁定③）：拉平加减链 → 子项递归 → 同项抵消/消零/排序重建
     //   旧实现只递归左右子树、不拉平，故 (24+5)-5 不会归约为 24。
@@ -300,8 +411,16 @@ export function keySol(t) {
   if (t.op === 'zero') return 'ZERO';
   if (t.op === 'num') return 'n' + t.card;
   if (t.op === 'recip') return 'r' + t.arg.card; // 与整数叶子不同前缀，禁止混淆
+  // ============ INPUT-07 叶子键（规范 §2.3.1）============
+  // ★ 'f3'（3!）与 'n6'（牌面 6）是两个不同叶子键，虽求值同为 6。
+  //   ⇒ 无需为「阶乘与牌面同值」写特处理，键结构天然区分（对应 I-1）。
+  if (t.op === 'fact') return 'f' + t.arg.card;
   const ka = keySol(t.a);
   const kb = keySol(t.b);
+  // ============ INPUT-07：% 必须保序（规范 §2.3.2 / §3.4）============
+  // 🔴 a%b ≠ b%a：7%3=1 vs 3%7=3、12%5=2 vs 5%12=5、8%6=2 vs 6%8=6。
+  //    必须写在 +/* 交换归一分支【之前】，且绝不参与任何排序。
+  if (t.op === 'mod') return `(% ${ka} ${kb})`;
   if (t.op === '+' || t.op === '*') {
     const x = ka <= kb ? ka : kb;
     const y = ka <= kb ? kb : ka;
@@ -340,6 +459,59 @@ export function leafVariants(cards) {
     }
   };
   rec(0, []);
+  return out;
+}
+
+// ============ INPUT-07：含阶乘/模的全量变体枚举（§1.4）============
+// 复用已建成的叶子变体机制，不新建框架。
+//
+// 每个 slot 的【单牌】形态三选一：
+//   num(c) ｜ recip(c)（c≠0,1）｜ fact(c)（牌面≤6 且非退化）
+// 另外可选取【一对 slot】组成 mod(a,b)，消耗 2 牌产出 1 项（§1.3）。
+//
+// 🔴 修饰不可叠加（规范 §1.5 通则，项目主 2026-08-06 13:07 裁定）：
+//    每个叶子最多带 1 个修饰；mod 两侧只能是【未修饰的原始叶子】。
+//    ⇒ 结构上不会产出 1/(3!)、(3!)!、(7%3)%2 等叠加式。
+export function advVariants(cards) {
+  const n = cards.length;
+  const out = [];
+
+  // 单牌形态候选
+  const soloForms = (c, i) => {
+    const fs = [numLeaf(c, i)];
+    if (c !== 0 && c !== 1) fs.push(recipLeaf(c, i));
+    if (factEnumerable(c)) fs.push(factLeaf(c, i));   // 牌面≥6 以上 / 1!/2! 均不枚举
+    return fs;
+  };
+
+  // 枚举「哪些 slot 被 mod 占用」：0 对或 1 对（四牌最多一对，两对则无剩余牌且不必要）
+  //   mod 不可交换 ⇒ 有序对 (i,j) 与 (j,i) 均需枚举
+  const modPairs = [[]];
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      if (modEnumerable(cards[i], cards[j])) modPairs.push([i, j]);
+    }
+  }
+
+  for (const mp of modPairs) {
+    const used = new Set(mp);
+    const base = [];
+    if (mp.length === 2) base.push(modLeaf(cards[mp[0]], mp[0], cards[mp[1]], mp[1]));
+    const free = [];
+    for (let i = 0; i < n; i++) if (!used.has(i)) free.push(i);
+
+    const rec = (k, acc) => {
+      if (k === free.length) { out.push(base.concat(acc)); return; }
+      const i = free[k];
+      for (const f of soloForms(cards[i], i)) {
+        acc.push(f);
+        rec(k + 1, acc);
+        acc.pop();
+      }
+    };
+    rec(0, []);
+  }
   return out;
 }
 
@@ -399,11 +571,14 @@ export const DISPLAY_LIMIT = 10;
 
 // ============ 三分类 solve（方案 §2.6 / §3.2） ============
 /**
- * 全量枚举 4 张牌的初级解 + 有效倒数解 + 被剔除的可消去解
+ * 全量枚举 4 张牌的初级解 + 有效高级解（倒数/阶乘/模）+ 被剔除的可消去解
  * @param {number[]} cards 4 个点数（0..13，0=大小王）
+ * @param {{ advancedCalc?:boolean }} [opts] INPUT-07 §1.1：高级计算开关
+ *   ★ R-01：关闭态下行为必严格等于初级符号完成态（无高级 solver）。
+ *   向后兼容：不传 opts 时沿用 INPUT-06 行为（仅倒数变体），保现有 21 项门禁不碎。
  * @returns {{ primary:Map, advanced:Map, cancelled:Map, counts:object, maxIters:number, rawHits:number }}
  */
-export function solve(cards) {
+export function solve(cards, opts) {
   const primary = new Map();
   const advanced = new Map();
   let cancelledRaw = 0; // ★ 计数器，非去重集合（规范 §4）
@@ -411,21 +586,39 @@ export function solve(cards) {
   let maxIters = 0;
   let overflowCount = 0;
 
-  for (const lv of leafVariants(cards)) {
+  // INPUT-07：三模式
+  //   opts 缺省（undefined） → INPUT-06 兼容态：仅倒数变体
+  //   advancedCalc:true      → 全高级：倒数 + 阶乘 + 模
+  //   advancedCalc:false     → 关闭态：纯初级，无任何高级变体（R-01）
+  let variants;
+  if (!opts) variants = leafVariants(cards);
+  else if (opts.advancedCalc) variants = advVariants(cards);
+  else variants = [cards.map((c, i) => numLeaf(c, i))];
+
+  for (const lv of variants) {
     const items = lv.map((t) => ({ t, v: t.v }));
     dfs24(items, (node) => {
       rawHits += 1;
       const rr = reduceToFixpoint(node);
       if (rr.iters > maxIters) maxIters = rr.iters;
       if (rr.overflow) overflowCount += 1;
-      // ★★ usedRecip 必须在归约之后判定（规范 R9 硬约束）
+      // ★★ 三标记均必须在归约之后判定（规范 R9 / INPUT-07 §1.4 硬约束）
+      //   退化式 1!/2! 已在归约期被 F-R 剥除 ⇒ usedFact 自然为 false（结构性保证）。
+      //   含 % 且结果 0 的项被 isZeroTerm 消去后 ⇒ usedMod 也自然为 false（规范 §2.4 警告 / A-7）。
       const usedRecip = countRecip(rr.node) > 0;
+      const usedFact = countFact(rr.node) > 0;
+      const usedMod = countMod(rr.node) > 0;
       const hadRecip = countRecip(node) > 0;
       // ★★ 裁定①：三分区统一用**归约式键**。
       //   旧实现 advanced/primary 用 keySol(node)（原式键）、cancelled 用 keySol(rr.node)（归约式键），
       //   两套键混用 ⇒ 同一条解在不同桶里键空间不一致，此为 task-68 要修的根因。
-      const k = keySol(rr.node);
-      if (usedRecip) {
+      // INPUT-07 §2.1：键由 (mask,value,usedRecip) 扩为 (mask,value,usedRecip,usedFact,usedMod)。
+      //   mask/value 已隐含于归约式键中（叶子键带牌面与修饰前缀），此处拼接三标记。
+      //   ★ 严格粗化（规范 §3.5）：不含高级符号的旧解三标记恒 false，
+      //     新增两维不引入新区分度 ⇒ 旧解不被分裂。
+      const baseK = keySol(rr.node);
+      const k = (usedFact || usedMod) ? `${baseK}|F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}` : baseK;
+      if (usedRecip || usedFact || usedMod) {
         if (!advanced.has(k)) advanced.set(k, renderDisplay(node));
       } else {
         // 裁定④：初级解同样用归约式键去重
@@ -458,7 +651,6 @@ export function solve(cards) {
     overflowCount,
   };
 }
-
 /**
  * 供 UI 层：只保留排序后 top-N 字符串驻留，其余仅计数（§1.4 内存约束）
  */
@@ -492,4 +684,15 @@ export default {
   F,
   MAX_ITER,
   DISPLAY_LIMIT,
+  // INPUT-07
+  advVariants,
+  factBig,
+  factLeaf,
+  factEnumerable,
+  isFactDegenerate,
+  modLeaf,
+  modEnumerable,
+  countFact,
+  countMod,
+  FACT_MAX_CARD,
 };
