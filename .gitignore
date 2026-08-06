@@ -27,3 +27,6 @@ selftest/*.log
 
 # task-80: tools/verify/gen-input06-recip-seeds.mjs 的运行产物（任意目录），不入库
 input06-recip-seeds.json
+
+# task-111: 截图验证临时装的 canvas 依赖（仅本地渲染 PNG 用，不入库）
+node_modules/

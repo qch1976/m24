@@ -30,11 +30,26 @@ const DEFAULT_SETTINGS = Object.freeze({
   version: 2,
   dealMode: DEAL_MODE.SOLVABLE,
   advancedCalc: false,
+  // 🔴 task-111 GUI-2：三项高级能力子开关（仅在 advancedCalc 为 true 时生效）。
+  //   默认 true：旧存档无此字段时行为与修前一致（开 advancedCalc 即三项全开）。
+  capRecip: true,
+  capFact: true,
+  capMod: true,
 });
 
 function defaults() {
   // 每次返回一个新对象，避免调用者修改共享实例
-  return { version: 2, dealMode: DEAL_MODE.SOLVABLE, advancedCalc: false };
+  return {
+    version: 2, dealMode: DEAL_MODE.SOLVABLE, advancedCalc: false,
+    capRecip: true, capFact: true, capMod: true,
+  };
+}
+
+// 🔴 子开关读取：非 boolean（含旧存档缺字段 undefined）一律归 true，
+//   保证「从未碰过子开关的用户」升级后行为不变（与 advancedCalc 的 false 兼容口径相反，
+//   因为子开关的【历史隐含值】是全开，而非全关）。
+function _cap(v) {
+  return typeof v === 'boolean' ? v : true;
 }
 
 function _validMode(m) {
@@ -63,14 +78,23 @@ export function loadSettings() {
 
     if (raw.version === 1) {                                                   // M 迁移
       if (!_validMode(raw.dealMode)) return defaults();                        // D3
-      return { version: 2, dealMode: raw.dealMode, advancedCalc: false };
+      return {
+        version: 2, dealMode: raw.dealMode, advancedCalc: false,
+        capRecip: true, capFact: true, capMod: true,
+      };
     }
     if (raw.version !== 2) return defaults();                                  // D4
     if (!_validMode(raw.dealMode)) return defaults();                          // D5
     if (typeof raw.advancedCalc !== 'boolean') {                               // D6 字段级降级
-      return { version: 2, dealMode: raw.dealMode, advancedCalc: false };
+      return {
+        version: 2, dealMode: raw.dealMode, advancedCalc: false,
+        capRecip: _cap(raw.capRecip), capFact: _cap(raw.capFact), capMod: _cap(raw.capMod),
+      };
     }
-    return { version: 2, dealMode: raw.dealMode, advancedCalc: raw.advancedCalc };
+    return {
+      version: 2, dealMode: raw.dealMode, advancedCalc: raw.advancedCalc,
+      capRecip: _cap(raw.capRecip), capFact: _cap(raw.capFact), capMod: _cap(raw.capMod),
+    };
   } catch (e) {
     return defaults();                                                         // D7
   }
@@ -79,7 +103,12 @@ export function loadSettings() {
 export function saveSettings(settings) {
   try {
     const mode = settings && settings.dealMode === DEAL_MODE.RANDOM ? DEAL_MODE.RANDOM : DEAL_MODE.SOLVABLE;
-    const clean = { version: 2, dealMode: mode, advancedCalc: !!(settings && settings.advancedCalc) };
+    const clean = {
+      version: 2, dealMode: mode, advancedCalc: !!(settings && settings.advancedCalc),
+      capRecip: _cap(settings && settings.capRecip),
+      capFact: _cap(settings && settings.capFact),
+      capMod: _cap(settings && settings.capMod),
+    };
     return _setStorage(STORAGE_KEY, clean);
   } catch (e) {
     return false;

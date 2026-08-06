@@ -43,7 +43,9 @@ const SLOT_BG = 'transparent';
 const SLOT_STROKE = '#DDDDDD';
 
 const PANEL_ANCHOR = {
-  panel: { x: 25, y: 145, w: 361, h: 600 },
+  // 🔴 task-111 GUI-2：新增阶乘/模两行子开关，且四行开关均需 h≥44 DP
+  //   ⇒ 面板加高 600→734（底部 145+734=879 < 891 设计高）
+  panel: { x: 25, y: 145, w: 361, h: 734 },
   title: { x: 35, y: 155, w: 341, h: 40 },
   divider: { x: 25, y: 195, w: 361, h: 2 },
   section: { x: 35, y: 215, w: 341, h: 30 },
@@ -52,14 +54,19 @@ const PANEL_ANCHOR = {
   divider2: { x: 25, y: 355, w: 361, h: 2 },
   // INPUT-06：新增「高级计算」开关分段（插入 divider2 与 moreLabel 之间）
   section2: { x: 35, y: 365, w: 341, h: 30 },
-  advToggle: { x: 35, y: 405, w: 341, h: 44 },
-  divider3: { x: 25, y: 461, w: 361, h: 2 },
-  // 以下原有字段均下移 106 DP（365→471 / 405→511 / 475→581）
-  moreLabel: { x: 35, y: 471, w: 341, h: 30 },
-  slotsRow1: { x: 35, y: 511, w: 322, h: 55 }, // 3 slots
-  slotsRow2: { x: 35, y: 581, w: 322, h: 55 }, // 2 slots
-  cancelBtn: { x: 35, y: 685, w: 171, h: 50 },
-  saveBtn: { x: 206, y: 685, w: 170, h: 50 },
+  // ⚠️ 可点区高度必须 ≥ 44 DP（无障碍规范，selftest_input06_layout 设有硬校验）
+  advToggle: { x: 35, y: 399, w: 341, h: 44 },      // 主开关：高级计算
+  // 🔴 task-111：三项能力子开关（缩进 16DP，仅主开关开启时可点），同样 h=44
+  capRecipToggle: { x: 51, y: 447, w: 325, h: 44 },
+  capFactToggle: { x: 51, y: 495, w: 325, h: 44 },
+  capModToggle: { x: 51, y: 543, w: 325, h: 44 },
+  divider3: { x: 25, y: 599, w: 361, h: 2 },
+  // 以下原有字段均下移（相对 INPUT-06 再 +138 DP）
+  moreLabel: { x: 35, y: 609, w: 341, h: 30 },
+  slotsRow1: { x: 35, y: 649, w: 322, h: 55 }, // 3 slots
+  slotsRow2: { x: 35, y: 714, w: 322, h: 55 }, // 2 slots
+  cancelBtn: { x: 35, y: 814, w: 171, h: 50 },
+  saveBtn: { x: 206, y: 814, w: 170, h: 50 },
 };
 
 // INPUT-06：开关视觉常量
@@ -87,6 +94,10 @@ export default class SettingsPanel {
     // INPUT-06：高级计算开关 pending / current
     this._pendingAdv = false;
     this._currentAdv = false;
+    // 🔴 task-111 GUI-2：三项能力子开关（默认全开，与旧行为一致）
+    this._pendingCapRecip = true; this._currentCapRecip = true;
+    this._pendingCapFact = true; this._currentCapFact = true;
+    this._pendingCapMod = true; this._currentCapMod = true;
   }
 
   /**
@@ -99,6 +110,11 @@ export default class SettingsPanel {
     this._pendingMode = s.dealMode;
     this._currentAdv = !!s.advancedCalc;   // INPUT-06
     this._pendingAdv = !!s.advancedCalc;
+    // 🔴 task-111：子开关（旧存档缺字段时 loadSettings 已归 true）
+    const cR = s.capRecip !== false, cF = s.capFact !== false, cM = s.capMod !== false;
+    this._currentCapRecip = cR; this._pendingCapRecip = cR;
+    this._currentCapFact = cF; this._pendingCapFact = cF;
+    this._currentCapMod = cM; this._pendingCapMod = cM;
     this._onSave = onSave || null;
     this.visible = true;
     this._buttonRects = [];
@@ -130,12 +146,28 @@ export default class SettingsPanel {
     return this._currentAdv;
   }
 
+  // 🔴 task-111 GUI-2：供 PageRenderer 取能力开关，直接喳给 RS.solve 的 opts.caps
+  getCurrentCaps() {
+    return {
+      recip: this._currentCapRecip !== false,
+      fact: this._currentCapFact !== false,
+      mod: this._currentCapMod !== false,
+    };
+  }
+
   _save() {
-    const ok = saveSettings({ dealMode: this._pendingMode, advancedCalc: this._pendingAdv });
+    const ok = saveSettings({
+      dealMode: this._pendingMode, advancedCalc: this._pendingAdv,
+      capRecip: this._pendingCapRecip, capFact: this._pendingCapFact, capMod: this._pendingCapMod,
+    });
     if (ok) {
       this._currentMode = this._pendingMode;
       this._currentAdv = this._pendingAdv;   // INPUT-06
-      if (this._onSave) this._onSave(this._currentMode, this._currentAdv);
+      // 🔴 task-111：子开关一并提交
+      this._currentCapRecip = this._pendingCapRecip;
+      this._currentCapFact = this._pendingCapFact;
+      this._currentCapMod = this._pendingCapMod;
+      if (this._onSave) this._onSave(this._currentMode, this._currentAdv, this.getCurrentCaps());
     }
     this.close();
     return ok;
@@ -144,6 +176,10 @@ export default class SettingsPanel {
   _cancel() {
     this._pendingMode = this._currentMode;
     this._pendingAdv = this._currentAdv;     // INPUT-06：取消也需回滚开关
+    // 🔴 task-111：子开关同样需回滚
+    this._pendingCapRecip = this._currentCapRecip;
+    this._pendingCapFact = this._currentCapFact;
+    this._pendingCapMod = this._currentCapMod;
     this.close();
   }
 
@@ -222,8 +258,23 @@ export default class SettingsPanel {
     ctx.fillText('高级计算', sec2.x, sec2.y + sec2.h / 2);
 
     const advRect = S(PANEL_ANCHOR.advToggle);
-    this._drawSwitch(ctx, advRect, '倒数 1/x（默认关）', this._pendingAdv, scale);
+    this._drawSwitch(ctx, advRect, '高级计算（默认关）', this._pendingAdv, scale);
     this._buttonRects.push({ key: 'toggle:adv', ...advRect });
+
+    // 🔴 task-111 GUI-2：三项能力子开关（倒数 / 阶乘 / 模）
+    //   修前只有一行「倒数 1/x」，阶乘与模无 UI 入口且引擎恒开（只要主开关开就三项全上）。
+    //   主开关关闭时子开关置置灰（不可点），与引擎“advancedCalc:false 即无任何高级变体”一致。
+    const caps = [
+      ['capRecip', PANEL_ANCHOR.capRecipToggle, '倒数 1/x', this._pendingCapRecip],
+      ['capFact', PANEL_ANCHOR.capFactToggle, '阶乘 n!', this._pendingCapFact],
+      ['capMod', PANEL_ANCHOR.capModToggle, '取模 a%b', this._pendingCapMod],
+    ];
+    for (const [key, anchor, label, on] of caps) {
+      const r = S(anchor);
+      this._drawSwitch(ctx, r, label, this._pendingAdv && on, scale, !this._pendingAdv);
+      // 主开关关时不注册点击区 ⇒ 置灰不可点
+      if (this._pendingAdv) this._buttonRects.push({ key: `toggle:${key}`, ...r });
+    }
 
     const d3 = S(PANEL_ANCHOR.divider3);
     ctx.fillStyle = DIVIDER;
@@ -287,10 +338,10 @@ export default class SettingsPanel {
   }
 
   // INPUT-06：开关控件（label 左对齐 + switch 右对齐）
-  _drawSwitch(ctx, rect, label, on, scale) {
+  _drawSwitch(ctx, rect, label, on, scale, dimmed) {
     const cy = rect.y + rect.h / 2;
-    // label
-    ctx.fillStyle = TEXT_DARK;
+    // label（🔴 task-111：dimmed 时置灰，表示不可点）
+    ctx.fillStyle = dimmed ? TEXT_MUTED : TEXT_DARK;
     ctx.font = `${Math.floor(15 * scale)}px sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -300,7 +351,7 @@ export default class SettingsPanel {
     const sh = SWITCH_H * scale;
     const sx = rect.x + rect.w - sw - 4 * scale;
     const sy = cy - sh / 2;
-    ctx.fillStyle = on ? SWITCH_ON_BG : SWITCH_OFF_BG;
+    ctx.fillStyle = dimmed ? '#E8E8E8' : (on ? SWITCH_ON_BG : SWITCH_OFF_BG);
     roundRect(ctx, sx, sy, sw, sh, sh / 2);
     ctx.fill();
     // 滑块
@@ -371,6 +422,10 @@ export default class SettingsPanel {
     if (key === 'radio:random')   { this._pendingMode = DEAL_MODE.RANDOM;   return { action: 'consumed' }; }
     // INPUT-06：高级计算开关（pending 取反，需点保存才落库）
     if (key === 'toggle:adv')     { this._pendingAdv = !this._pendingAdv;   return { action: 'consumed' }; }
+    // 🔴 task-111 GUI-2：三项子开关（仅主开关开启时才注册点击区）
+    if (key === 'toggle:capRecip') { this._pendingCapRecip = !this._pendingCapRecip; return { action: 'consumed' }; }
+    if (key === 'toggle:capFact')  { this._pendingCapFact = !this._pendingCapFact;   return { action: 'consumed' }; }
+    if (key === 'toggle:capMod')   { this._pendingCapMod = !this._pendingCapMod;     return { action: 'consumed' }; }
     if (key === 'save')   { this._save();  return { action: 'saved' }; }
     if (key === 'cancel') { this._cancel(); return { action: 'cancelled' }; }
     if (key === 'mask')   { this._cancel(); return { action: 'cancelled' }; }

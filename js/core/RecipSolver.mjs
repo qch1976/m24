@@ -188,6 +188,41 @@ export function renderDisplay(t) {
   return `(${renderDisplay(t.a)}${op}${renderDisplay(t.b)})`;
 }
 
+// ============ 🔴 task-111 GUI-1：高级解分步（advPostOrderSteps）============
+// 背景：仅高级解牌组（初级解=0 且 advanced>0，如 {5,8,9,10}）点提示时，
+//   旧路径把整条算式塞进 lhs（`高级解法：...`）并把同一 step 传 3 次 ⇒ 无分步。
+//   而初级解走 Solver.postOrderSteps ⇒ 正常分步 ⇒ 两者口径不一。
+// 🔴 为何不能直接复用 Solver.postOrderSteps：
+//   它读 node.args[0]/args[1]（初级 AST 形状），而高级 AST 是 {op, a, b}，
+//   且含 recip/fact/mod 三类叶子 ⇒ 直接调用会全程 traverse 不到、返回空数组。
+// 口径对齐：后序遍历，每个【二元运算节点】产一步；
+//   recip/fact/mod 作为【原子叶子】不单独成步（它们是牌面变形，不是玩家的一步运算）。
+export function advPostOrderSteps(t) {
+  const steps = [];
+  const isAtom = (x) => !x || x.op === 'num' || x.op === 'one' || x.op === 'zero'
+    || x.op === 'recip' || x.op === 'fact' || x.op === 'mod';
+  const fmt = (fr) => {
+    if (!fr) return '?';
+    if (fr.d === 1n || fr.d === 1) return String(fr.n);
+    return `${fr.n}/${fr.d}`;
+  };
+  const traverse = (node) => {
+    if (isAtom(node)) return;
+    traverse(node.a);
+    traverse(node.b);
+    const op = node.op === '*' ? '×' : node.op === '/' ? '÷' : node.op;
+    steps.push({
+      step: steps.length + 1,
+      lhs: renderDisplay(node.a),
+      op,
+      rhs: renderDisplay(node.b),
+      result: fmt(evalNode(node)),
+    });
+  };
+  traverse(t);
+  return steps;
+}
+
 // 独立 evaluator（禁 solver 自证：复算不复用 dfs 里的 v）
 export function evalNode(t) {
   if (!t) return null;
@@ -500,25 +535,32 @@ export function leafVariants(cards) {
 // 🔴 修饰不可叠加（规范 §1.5 通则，项目主 2026-08-06 13:07 裁定）：
 //    每个叶子最多带 1 个修饰；mod 两侧只能是【未修饰的原始叶子】。
 //    ⇒ 结构上不会产出 1/(3!)、(3!)!、(7%3)%2 等叠加式。
-export function advVariants(cards) {
+export function advVariants(cards, caps) {
   const n = cards.length;
   const out = [];
+  // 🔴 task-111 GUI-2：三项高级能力可【独立开关】。
+  //   旧调用 advVariants(cards) 不传 caps ⇒ 三项全开 ⇒ 行为与修前逐字节一致（向后兼容）。
+  const allowRecip = !caps || caps.recip !== false;
+  const allowFact = !caps || caps.fact !== false;
+  const allowMod = !caps || caps.mod !== false;
 
   // 单牌形态候选
   const soloForms = (c, i) => {
     const fs = [numLeaf(c, i)];
-    if (c !== 0 && c !== 1) fs.push(recipLeaf(c, i));
-    if (factEnumerable(c)) fs.push(factLeaf(c, i));   // 牌面≥6 以上 / 1!/2! 均不枚举
+    if (allowRecip && c !== 0 && c !== 1) fs.push(recipLeaf(c, i));
+    if (allowFact && factEnumerable(c)) fs.push(factLeaf(c, i));   // 牌面≥6 以上 / 1!/2! 均不枚举
     return fs;
   };
 
   // 枚举「哪些 slot 被 mod 占用」：0 对 / 1 对 / ★ 2 对（INPUT-07 §1.3 双 % 形态）
   //   mod 不可交换 ⇒ 有序对 (i,j) 与 (j,i) 均需枚举
   const modPairs = [[]];
-  for (let i = 0; i < n; i++) {
-    for (let j = 0; j < n; j++) {
-      if (i === j) continue;
-      if (modEnumerable(cards[i], cards[j])) modPairs.push([i, j]);
+  if (allowMod) {
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        if (modEnumerable(cards[i], cards[j])) modPairs.push([i, j]);
+      }
     }
   }
 
@@ -554,7 +596,7 @@ export function advVariants(cards) {
   //   若也枚举「两组互换」会产生 24 条 ⇒ 形态数膚胀到 144，且与上层对
   //   不可交换算子的双序枚举重复 ⇒ 同一解被重复产出。
   //   第一组固定含 slot0，亦即 D-4 的「保留牌位序在前者」稳定侧。
-  if (n === 4) {
+  if (n === 4 && allowMod) {
     for (const partner of [1, 2, 3]) {
       const g1 = [0, partner];
       const g2 = [1, 2, 3].filter((x) => x !== partner);
@@ -642,6 +684,8 @@ export const DISPLAY_LIMIT = 10;
 export function solve(cards, opts) {
   const primary = new Map();
   const advanced = new Map();
+  // 🔴 task-111 GUI-1：展示文本 → AST 节点（仅供 UI 分步提示，不参与去重/键计算）
+  const advancedNodes = new Map();
   let cancelledRaw = 0; // ★ 计数器，非去重集合（规范 §4）
   let rawHits = 0;
   let maxIters = 0;
@@ -651,9 +695,12 @@ export function solve(cards, opts) {
   //   opts 缺省（undefined） → INPUT-06 兼容态：仅倒数变体
   //   advancedCalc:true      → 全高级：倒数 + 阶乘 + 模
   //   advancedCalc:false     → 关闭态：纯初级，无任何高级变体（R-01）
+  // 🔴 task-111 GUI-2：advancedCalc:true 时可再用 opts.caps 独立关闭其中某项：
+  //   { advancedCalc:true, caps:{ recip:true, fact:false, mod:true } }
+  //   caps 缺省 ⇒ 三项全开 ⇒ 与修前行为逐字节一致。
   let variants;
   if (!opts) variants = leafVariants(cards);
-  else if (opts.advancedCalc) variants = advVariants(cards);
+  else if (opts.advancedCalc) variants = advVariants(cards, opts.caps);
   else variants = [cards.map((c, i) => numLeaf(c, i))];
 
   for (const lv of variants) {
@@ -731,7 +778,13 @@ export function solve(cards, opts) {
         ? `${baseK}|R${usedRecip ? 1 : 0}F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}`
         : baseK;
       if (usedRecip || usedFact || usedMod) {
-        if (!advanced.has(k)) advanced.set(k, renderDisplay(node));
+        if (!advanced.has(k)) {
+          const disp = renderDisplay(node);
+          advanced.set(k, disp);
+          // 🔴 task-111 GUI-1：同时留存展示文本 → AST 节点的映射，
+          //   供 UI 将高级解拆成分步（不改键、不改 advanced 内容 ⇒ 不触碰 R-01）。
+          if (!advancedNodes.has(disp)) advancedNodes.set(disp, node);
+        }
       } else {
         // 裁定④：初级解同样用归约式键去重
         if (hadRecip) cancelledRaw += 1; // ★ rawHits 级诊断计数，不去重、不作门禁
@@ -752,6 +805,7 @@ export function solve(cards, opts) {
   return {
     primary,
     advanced,
+    advancedNodes,   // 🔴 task-111 GUI-1：展示文本 → AST，供分步提示使用
     cancelledRaw,
     counts: {
       primary: primary.size,
@@ -769,12 +823,20 @@ export function solve(cards, opts) {
 export function buildDisplay(result, limit = DISPLAY_LIMIT) {
   const p = sortSolutions([...result.primary.values()]);
   const a = sortSolutions([...result.advanced.values()]);
+  // 🔴 task-111 GUI-1：额外导出 advancedTop 对应的【AST 节点】。
+  //   旧实现只给渲染后的字符串 ⇒ UI 拿不到结构 ⇒ 只能把整条算式塞进 lhs
+  //   ⇒ 仅高级解牌组的提示退化为「显示完整算式」（与初级解分步口径不一）。
+  //   result.advanced 是 Map<key, display>，只存了展示文本；故此处用 nodes 旁路回取。
+  const aTop = a.length ? a[0] : null;
+  let advancedTopNode = null;
+  if (aTop && result.advancedNodes) advancedTopNode = result.advancedNodes.get(aTop) || null;
   return {
     primary: p.slice(0, limit),
     advanced: a.slice(0, limit),
     counts: { primary: result.primary.size, advanced: result.advanced.size },
     primaryTop: p.length ? p[0] : null,
-    advancedTop: a.length ? a[0] : null,
+    advancedTop: aTop,
+    advancedTopNode,
   };
 }
 
@@ -791,6 +853,7 @@ export default {
   countRecip,
   render,
   renderDisplay,
+  advPostOrderSteps,   // 🔴 task-111 GUI-1：高级解分步
   evalNode,
   is24F,
   F,

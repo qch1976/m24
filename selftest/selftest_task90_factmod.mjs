@@ -255,7 +255,14 @@ console.log('=== R-01/R-12 端到端：PageRenderer 必须透传 advancedCalc �
 const prSrc = fs.readFileSync('js/ui/PageRenderer.js', 'utf-8');
 const prCode = prSrc.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 T('E2E-1 solve() 调用处传了 advancedCalc',
-  /RecipSolver\.solve\(\s*values\s*,\s*\{\s*advancedCalc\s*\}\s*\)/.test(prCode), null);
+  /RecipSolver\.solve\(\s*values\s*,\s*\{\s*advancedCalc\s*[,}]/.test(prCode), null);
+// 🔴 task-111 GUI-2：caps（倒数/阶乘/模三项子开关）同样必须透传，
+//   否则设置页关掉阶乘/模后引擎仍会产出它们（开关成装饰）。
+//   原正则写死 `{ advancedCalc }` 单字段 ⇒ 新增字段会误报，故放宽为「首字段后跟 , 或 }」。
+T('E2E-1b caps 也已透传给 solve()',
+  /RecipSolver\.solve\(\s*values\s*,\s*\{\s*advancedCalc\s*,\s*caps\s*\}\s*\)/.test(prCode), null);
+T('E2E-1c caps 已快照（同 §1.4 异步竞态）',
+  /const caps = this\._caps \? \{ \.\.\.this\._caps \} : undefined;/.test(prCode), null);
 T('E2E-2 不存在不传 opts 的 solve(values) 裸调用',
   !/RecipSolver\.solve\(\s*values\s*\)/.test(prCode), null);
 T('E2E-3 advancedCalc 已快照（避§1.4 异步竞态）',

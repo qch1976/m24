@@ -134,6 +134,12 @@ export default class PageRenderer {
     this._dealMode = this._settings.dealMode;
     // ============ INPUT-06 新增 ============
     this._advancedCalc = !!this._settings.advancedCalc;
+    // 🔴 task-111 GUI-2：三项能力开关（旧存档缺字段 ⇒ loadSettings 已归 true）
+    this._caps = {
+      recip: this._settings.capRecip !== false,
+      fact: this._settings.capFact !== false,
+      mod: this._settings.capMod !== false,
+    };
     this.answerArea.setAdvancedCalc(this._advancedCalc);
     this._recipResult = null;      // RecipSolver.solve() 结果
     this._recipDisplay = null;     // buildDisplay() 结果（分区 top-10 + 计数）
@@ -152,9 +158,11 @@ export default class PageRenderer {
     this._recipDisplay = null;
     this._recipComputing = true;
     const advancedCalc = this._advancedCalc;
+    // 🔴 task-111：caps 也必须快照（同 §1.4 竞态：枚举异步，让出一帧期间用户可能改子开关）
+    const caps = this._caps ? { ...this._caps } : undefined;
     const run = () => {
       try {
-        const res = RecipSolver.solve(values, { advancedCalc });
+        const res = RecipSolver.solve(values, { advancedCalc, caps });
         this._recipResult = res;
         this._recipDisplay = RecipSolver.buildDisplay(res, RecipSolver.DISPLAY_LIMIT);
       } catch (e) {
@@ -171,8 +179,17 @@ export default class PageRenderer {
   }
 
   // 高级计算开关变更后的统一同步入口
-  _applyAdvancedCalc(on) {
+  _applyAdvancedCalc(on, caps) {
     this._advancedCalc = !!on;
+    // 🔴 task-111：子开关同步（不传则从 _settings 重读）
+    if (caps) this._caps = { recip: caps.recip !== false, fact: caps.fact !== false, mod: caps.mod !== false };
+    else if (this._settings) {
+      this._caps = {
+        recip: this._settings.capRecip !== false,
+        fact: this._settings.capFact !== false,
+        mod: this._settings.capMod !== false,
+      };
+    }
     if (this.answerArea) this.answerArea.setAdvancedCalc(this._advancedCalc);
   }
 
@@ -689,7 +706,28 @@ export default class PageRenderer {
     const d = this._recipDisplay;
     const adv = this._advancedCalc && d ? d.advancedTop : null;
     if (adv) {
-      // 整条倒数算式作为左侧，结果固定 24；op/rhs 置空串避免再出 undefined
+      // 🔴 task-111 GUI-1：旧实现把【整条算式】塞进 lhs（`高级解法：...`）并把同一
+      //   step 传 3 次 ⇒ 根本没有分步，与初级解的分步口径不一。
+      //   定界实测：只要初级解存在就走上方 postOrderSteps 正常分步（高级解不影响），
+      //   故失效条件 = 【初级解 0 且 高级解 >0】（如 {5,8,9,10}），非「所有含高级解」。
+      //   现改用 advPostOrderSteps 拆真分步（高级 AST 是 {op,a,b} 且含 recip/fact/mod
+      //   三类叶子，Solver.postOrderSteps 读 args[] ⇒ 对它返回空数组，不可直接复用）。
+      let advSteps = null;
+      if (d.advancedTopNode) {
+        try {
+          const st = RecipSolver.advPostOrderSteps(d.advancedTopNode);
+          if (st && st.length >= 2) advSteps = st;
+        } catch (e) {
+          console.error('[PageRenderer] advPostOrderSteps failed', e);
+        }
+      }
+      if (advSteps) {
+        // 高级解可能只 2 步（如 % 吃掉 2 张牌）⇒ 第 3 位补 null；
+        // HintModal.open 仅要求 steps[0] 与 steps[1] 非空（见 HintModal L44）。
+        this.hintModal.open([advSteps[0], advSteps[1], advSteps[2] || null]);
+        return;
+      }
+      // 降级：拿不到 AST 或不足 2 步时仍给整条（优于不弹窗）
       const step = { step: 1, lhs: `高级解法：${adv}`, op: '', rhs: '', result: '24' };
       this.hintModal.open([step, step, step]);
       return;
@@ -766,10 +804,10 @@ export default class PageRenderer {
       else if (key === 'settings') {
         // INPUT-05：打开设置面板；保存回调刷新当前 dealMode
         // INPUT-06：回调同时接收 advancedCalc
-        this.settingsPanel.open((newMode, newAdv) => {
+        this.settingsPanel.open((newMode, newAdv, newCaps) => {
           this._dealMode = newMode;
           this._settings = loadSettings();
-          this._applyAdvancedCalc(newAdv !== undefined ? newAdv : this._settings.advancedCalc);
+          this._applyAdvancedCalc(newAdv !== undefined ? newAdv : this._settings.advancedCalc, newCaps);
         });
       }
     } else if (page === PAGE.GAME) {
