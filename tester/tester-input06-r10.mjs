@@ -82,7 +82,7 @@ for (const cards of CASES) {
 // ④ [1,2,3,4] 压力用例
 // ============================================================
 console.log('\n' + '='.repeat(70));
-console.log('④ [1,2,3,4] 压力用例（基准 primary 52 / advanced 48）');
+console.log('④ [1,2,3,4] 压力用例（基准 primary 3 / advanced 4，量纲：归约式键唯一数）');
 console.log('='.repeat(70));
 {
   const t0 = Date.now();
@@ -91,12 +91,23 @@ console.log('='.repeat(70));
   const d = buildDisplay(res, DISPLAY_LIMIT);
   const t2 = Date.now();
   console.log(`  solve 耗时 ${t1 - t0}ms  buildDisplay 耗时 ${t2 - t1}ms`);
-  ck('R-10④ [1,2,3,4] primary = 52', res.primary.size === 52, `实际 ${res.primary.size}`);
-  ck('R-10④ [1,2,3,4] advanced = 48', res.advanced.size === 48, `实际 ${res.advanced.size}`);
-  ck('R-10④ 展示只驻留 top-10（primary）', d.primary.length === 10);
-  ck('R-10④ 展示只驻留 top-10（advanced）', d.advanced.length === 10);
-  ck('R-10④ 「…等共 N 条」primary N=52 > 展示 10', d.counts.primary === 52 && d.counts.primary > d.primary.length);
-  ck('R-10④ 「…等共 N 条」advanced N=48 > 展示 10', d.counts.advanced === 48 && d.counts.advanced > d.advanced.length);
+  // 🔴 task-103 修正（结论甲：期望值量纲写错，非实现缺陷）
+  //   旧值 52/48 的量纲 = 【原式键】去重（INPUT-05 旧引擎 Solver.toCanonicalKeyV2）。
+  //   我自建枚举独立得出：原式键去重 = 52（与旧断言分毫不差）⇒ 坐实量纲混用。
+  //   INPUT-06 起 solve 改用 RecipSolver.keySol（归约式键）⇒ 正确值 3/4。
+  //   依据：INPUT-06.md L268「[1,2,3,4] 初级 52 → 3，此为统一归约式键的预期结果，
+  //         本表为唯一有效期望值」+ R-11④ 写定 [1,2,3,4]=3/4；
+  //         产品注释 RecipSolver.js:395「禁止复用 Solver.toCanonicalKeyV2（会把
+  //         [1,2,3,4] 的 52 条初级解压成 3 条）」同指此事。
+  //   量纲标注：下列两值均为【归约式键唯一数】，非命中次数（rawHits=551）。
+  ck('R-10④ [1,2,3,4] primary = 3【归约式键唯一数】', res.primary.size === 3, `实际 ${res.primary.size}`);
+  ck('R-10④ [1,2,3,4] advanced = 4【归约式键唯一数】', res.advanced.size === 4, `实际 ${res.advanced.size}`);
+  // ↓ 原断言要求展示恰为 10 条且触发截断，但真值 3/4 < 10 ⇒ 本牌组不可能截断。
+  //   改为【不超限】+【全量展示】+【N 与 size 一致】，仍保留 top-10 上限约束。
+  ck('R-10④ 展示不超 top-10 上限（primary）', d.primary.length <= 10 && d.primary.length === res.primary.size, `展示 ${d.primary.length} / 共 ${res.primary.size}`);
+  ck('R-10④ 展示不超 top-10 上限（advanced）', d.advanced.length <= 10 && d.advanced.length === res.advanced.size, `展示 ${d.advanced.length} / 共 ${res.advanced.size}`);
+  ck('R-10④ 「…等共 N 条」primary N 与真实总数一致', d.counts.primary === res.primary.size, `N=${d.counts.primary} size=${res.primary.size}`);
+  ck('R-10④ 「…等共 N 条」advanced N 与真实总数一致', d.counts.advanced === res.advanced.size, `N=${d.counts.advanced} size=${res.advanced.size}`);
   ck('R-10④ solve+buildDisplay 总耗时 < 2000ms（不卡顿）', (t2 - t0) < 2000, `${t2 - t0}ms`);
   console.log('\n  primary top-10：');
   d.primary.forEach((e, i) => console.log(`    ${String(i + 1).padStart(2)}. ${e}`));
