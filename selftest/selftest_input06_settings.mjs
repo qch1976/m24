@@ -7,15 +7,20 @@ const { loadSettings, saveSettings, DEAL_MODE, SETTINGS_VERSION, getDefaultSetti
 
 let pass = 0, fail = 0; const bad = [];
 const ck = track((n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ? '  ' + e : '')); } else { fail++; bad.push(n); console.log('  XX  ' + n + (e ? '  ' + e : '')); } });
-const D = { version: 2, dealMode: 'solvable', advancedCalc: false };
+// 🔴 task-111 GUI-2：Settings 新增三项能力子开关 capRecip/capFact/capMod。
+//   本文件断言用【整对象 JSON.stringify 全等】⇒ 新字段必须写进期望值，
+//   不能改成子集比较（那会削弱 R-10「往返一致 + 不得多出字段」的原意）。
+//   子开关缺省恒 true（历史隐含值是全开），故所有既有期望值统一补 CAPS。
+const CAPS = { capRecip: true, capFact: true, capMod: true };
+const D = { version: 2, dealMode: 'solvable', advancedCalc: false, ...CAPS };
 
 console.log('='.repeat(70));
 console.log('A. v1 → v2 迁移 + 7 个降级触发点');
 console.log('='.repeat(70));
 const cases = [
-  ['M  v1 solvable → v2 adv=false', { version: 1, dealMode: 'solvable' }, { version: 2, dealMode: 'solvable', advancedCalc: false }],
-  ['M  v1 random   → v2 保留 mode', { version: 1, dealMode: 'random' }, { version: 2, dealMode: 'random', advancedCalc: false }],
-  ['   v2 adv=true  原样读回', { version: 2, dealMode: 'random', advancedCalc: true }, { version: 2, dealMode: 'random', advancedCalc: true }],
+  ['M  v1 solvable → v2 adv=false', { version: 1, dealMode: 'solvable' }, { version: 2, dealMode: 'solvable', advancedCalc: false, ...CAPS }],
+  ['M  v1 random   → v2 保留 mode', { version: 1, dealMode: 'random' }, { version: 2, dealMode: 'random', advancedCalc: false, ...CAPS }],
+  ['   v2 adv=true  原样读回', { version: 2, dealMode: 'random', advancedCalc: true }, { version: 2, dealMode: 'random', advancedCalc: true, ...CAPS }],
   ['   v2 adv=false 原样读回', { version: 2, dealMode: 'solvable', advancedCalc: false }, D],
   ['D1 首次安装(undefined)', undefined, D],
   ['D1 空字符串', '', D],
@@ -29,10 +34,10 @@ const cases = [
   ['D4 version 缺失', { dealMode: 'random', advancedCalc: true }, D],
   ['D4 version="2"(字符串)', { version: '2', dealMode: 'random', advancedCalc: true }, D],
   ['D5 v2 + dealMode 非法', { version: 2, dealMode: 'zz', advancedCalc: true }, D],
-  ['D6 v2 + adv 为字符串(字段级降级)', { version: 2, dealMode: 'random', advancedCalc: 'yes' }, { version: 2, dealMode: 'random', advancedCalc: false }],
-  ['D6 v2 + adv 为数字 1', { version: 2, dealMode: 'random', advancedCalc: 1 }, { version: 2, dealMode: 'random', advancedCalc: false }],
-  ['D6 v2 + adv 缺失', { version: 2, dealMode: 'random' }, { version: 2, dealMode: 'random', advancedCalc: false }],
-  ['   v1 带多余字段(忽略)', { version: 1, dealMode: 'random', foo: 1, bar: 'x' }, { version: 2, dealMode: 'random', advancedCalc: false }],
+  ['D6 v2 + adv 为字符串(字段级降级)', { version: 2, dealMode: 'random', advancedCalc: 'yes' }, { version: 2, dealMode: 'random', advancedCalc: false, ...CAPS }],
+  ['D6 v2 + adv 为数字 1', { version: 2, dealMode: 'random', advancedCalc: 1 }, { version: 2, dealMode: 'random', advancedCalc: false, ...CAPS }],
+  ['D6 v2 + adv 缺失', { version: 2, dealMode: 'random' }, { version: 2, dealMode: 'random', advancedCalc: false, ...CAPS }],
+  ['   v1 带多余字段(忽略)', { version: 1, dealMode: 'random', foo: 1, bar: 'x' }, { version: 2, dealMode: 'random', advancedCalc: false, ...CAPS }],
 ];
 for (const [n, input, exp] of cases) {
   store['m24.settings'] = input;

@@ -136,7 +136,7 @@ T('G2-12 Settings 持久化三个子开关字段',
 //   包住以防导入/调用异常导致后续断言静默退场。
 let loaded = {}, rt = {};
 try {
-  const S = await import('../js/core/Settings.js');
+  const S = await import('../js/core/Settings.mjs');
   globalThis.wx = globalThis.wx || {};
   let store = { version: 2, dealMode: 'solvable', advancedCalc: true }; // 故意不含 cap* 字段
   globalThis.wx.getStorageSync = () => store;
