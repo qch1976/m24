@@ -8,7 +8,10 @@
 //     不数源码里出现几次 'adv:mod'（源码有 ≠ 渲染出、更 ≠ 可点）。
 //   - 「不可点」用 handleButton 实际返回值验，不是看有没有 if。
 import assert from 'assert';
-import { createCanvas } from 'canvas';
+// 🔴 用仓库既有的 mock ctx，不用 npm 'canvas'：
+//   canvas 是本地临时装的 devDependency，开发服务器/CI 上没有 ⇒ 会 ERR_MODULE_NOT_FOUND。
+//   本文件只需要「render 跑完后 _buttonRects 里有哪些键」，不需要真实像素 ⇒ mock 足够。
+import { createMockCtx } from '../tester/render-smoke/mock-ctx.mjs';
 
 globalThis.wx = {
   getStorageSync: () => '', setStorageSync: () => {},
@@ -25,8 +28,7 @@ const t = (name, cond, extra) => {
 
 // 渲染后取真实高级键命中区（直接量）
 const advKeys = (a) => {
-  const c = createCanvas(411, 891);
-  a.render(c.getContext('2d'), 411, 891);
+  a.render(createMockCtx(), 411, 891);
   return a._buttonRects.filter((b) => b.kind === 'adv').map((b) => b.advKey).sort();
 };
 const mk = (adv, caps) => {
