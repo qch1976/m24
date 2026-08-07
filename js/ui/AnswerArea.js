@@ -295,6 +295,10 @@ export default class AnswerArea {
     this._buttonRects = [];       // 命中区数组，供 PageRenderer.handleEvent 复用
     // ============ INPUT-06 新增 ============
     this.advancedCalc = false;    // 高级计算开关（控 advRow 与 1/x 键）
+    // 🔴 task-112 GUI-3：三项能力子开关，控 advRow 内哪些键可见。
+    //   默认全 true（与 Settings 旧存档归 true 口径一致），
+    //   ⇒ 不调 setCaps 时行为与 task-111 逐字节相同。
+    this.caps = { recip: true, fact: true, mod: true };
     this.areaState = AREA_STATE.CLOSED;  // 弹出式答题区状态机
     this._slideStartAt = 0;       // 动画起点
     this._slideProgress = 0;      // 0..1
@@ -313,6 +317,51 @@ export default class AnswerArea {
 
   isAdvancedCalc() {
     return this.advancedCalc;
+  }
+
+  // ============ 🔴 task-112 GUI-3：子开关联动答题区按钮 ============
+  // 设置页关掉某项高级运算后，答题区必须同步抽掉对应按钮，
+  // 否则用户能点一个引擎已禁用的运算符（能输入却永远算不对）。
+  //   参数与 PageRenderer._caps 同形：{ recip, fact, mod }，非 false 即为开。
+  setCaps(caps) {
+    const next = {
+      recip: !caps || caps.recip !== false,
+      fact: !caps || caps.fact !== false,
+      mod: !caps || caps.mod !== false,
+    };
+    const changed = next.recip !== this.caps.recip
+      || next.fact !== this.caps.fact
+      || next.mod !== this.caps.mod;
+    if (!changed) return;
+    this.caps = next;
+    // 已输入的算式里如有刚被禁用的记号，必须清掉。
+    // 否则会留下“屏上可见、但按钮已消失、且引擎不收”的死算式，
+    // 用户无法用按钮重现也无法理解为何不合法（除了逐个回删）。
+    // 口径与主开关 setAdvancedCalc 对 RECIP 的处理一致：整体清空。
+    if (this._hasDisabledAdvToken()) this.tokens = [];
+  }
+
+  getCaps() {
+    return { ...this.caps };
+  }
+
+  // 当前 token 序列中是否含【已被禁用】的高级记号
+  _hasDisabledAdvToken() {
+    return this.tokens.some((t) => (
+      (t.type === TokenType.RECIP && !this.caps.recip)
+      || (t.type === TokenType.FACT && !this.caps.fact)
+      || (t.type === TokenType.MOD && !this.caps.mod)
+    ));
+  }
+
+  // 某项高级能力当前是否可用（主开关 ∧ 子开关）
+  // ⚠️ 单一判据入口：渲染、命中区、addToken 均走它，避免三处各写一份而走歧。
+  isAdvKeyEnabled(advKey) {
+    if (!this.advancedCalc) return false;
+    if (advKey === 'recip') return this.caps.recip !== false;
+    if (advKey === 'fact') return this.caps.fact !== false;
+    if (advKey === 'mod') return this.caps.mod !== false;
+    return false;
   }
 
   // ============ INPUT-06：答题区滑入 / 滑出动效（§1.2.1） ============
@@ -543,18 +592,28 @@ export default class AnswerArea {
       const advRow = L.advRow;
       const advW = advRow.w / advRow.cols;
       const disabled = !this.enabled;
+      // 🔴 task-112 GUI-3：子开关关掉的项【既不绘制也不入命中区】。
+      //   注意：不重排布局 —— advRow 仍为 3 列、各键位置恒定（与 INPUT-06/07
+      //   “不重排布局”约定一致，也避开 layoutFor 与各几何断言），
+      //   关掉的列只是置空，不会让其余键串位而造成误触。
       // 列 0：n!（阶乘，后缀）
-      const btnF = S({ x: advRow.x, y: advRow.y, w: advW, h: advRow.h });
-      this._drawButton(ctx, btnF, FACT_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
-      this._buttonRects.push({ key: 'adv:fact', kind: 'adv', advKey: 'fact', disabled, ...btnF });
+      if (this.isAdvKeyEnabled('fact')) {
+        const btnF = S({ x: advRow.x, y: advRow.y, w: advW, h: advRow.h });
+        this._drawButton(ctx, btnF, FACT_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+        this._buttonRects.push({ key: 'adv:fact', kind: 'adv', advKey: 'fact', disabled, ...btnF });
+      }
       // 列 1（1/x 居中，保持 INPUT-06 原位）
-      const btn = S({ x: advRow.x + advW, y: advRow.y, w: advW, h: advRow.h });
-      this._drawButton(ctx, btn, ADV_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
-      this._buttonRects.push({ key: 'adv:recip', kind: 'adv', advKey: 'recip', disabled, ...btn });
+      if (this.isAdvKeyEnabled('recip')) {
+        const btn = S({ x: advRow.x + advW, y: advRow.y, w: advW, h: advRow.h });
+        this._drawButton(ctx, btn, ADV_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+        this._buttonRects.push({ key: 'adv:recip', kind: 'adv', advKey: 'recip', disabled, ...btn });
+      }
       // 列 2：%（模，中缀）
-      const btnM = S({ x: advRow.x + advW * 2, y: advRow.y, w: advW, h: advRow.h });
-      this._drawButton(ctx, btnM, MOD_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
-      this._buttonRects.push({ key: 'adv:mod', kind: 'adv', advKey: 'mod', disabled, ...btnM });
+      if (this.isAdvKeyEnabled('mod')) {
+        const btnM = S({ x: advRow.x + advW * 2, y: advRow.y, w: advW, h: advRow.h });
+        this._drawButton(ctx, btnM, MOD_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+        this._buttonRects.push({ key: 'adv:mod', kind: 'adv', advKey: 'mod', disabled, ...btnM });
+      }
     }
 
     // 控制键区
@@ -648,6 +707,9 @@ export default class AnswerArea {
     if (btn.kind === 'adv') {
       // ★ INPUT-06：1/x 前置单目 token
       // ★ INPUT-07：n! 后缀单目、% 中缀双目
+      // 🔴 task-112 GUI-3：双保险 —— 即使命中区因任何原因没清干净（如渲染前
+      //   就收到触摸、或外部直接造 btn 调本方法），也不得写入已禁用的记号。
+      if (!this.isAdvKeyEnabled(btn.advKey)) return { action: 'none' };
       if (btn.advKey === 'fact') { this.addToken({ type: TokenType.FACT }); return { action: 'changed' }; }
       if (btn.advKey === 'mod') { this.addToken({ type: TokenType.MOD }); return { action: 'changed' }; }
       this.addToken({ type: TokenType.RECIP });

@@ -141,6 +141,9 @@ export default class PageRenderer {
       mod: this._settings.capMod !== false,
     };
     this.answerArea.setAdvancedCalc(this._advancedCalc);
+    // 🔴 task-112 GUI-3：启动时就把子开关同步给答题区，
+    //   否则首屏会先画出全部三键，直到用户进一次设置页才收敛。
+    if (this.answerArea.setCaps) this.answerArea.setCaps(this._caps);
     this._recipResult = null;      // RecipSolver.solve() 结果
     this._recipDisplay = null;     // buildDisplay() 结果（分区 top-10 + 计数）
     this._recipComputing = false;  // §1.4 竞态：枚举中 → [提示]/[答案] 置灰
@@ -191,6 +194,10 @@ export default class PageRenderer {
       };
     }
     if (this.answerArea) this.answerArea.setAdvancedCalc(this._advancedCalc);
+    // 🔴 task-112 GUI-3：子开关联动答题区按钮（设置页返回即生效）。
+    //   本方法是设置变更的唯一汇聚入口（面板 hit 与 onSave 回调两条路径都经它），
+    //   故只需在此处挂一次，不会漏分支。
+    if (this.answerArea && this.answerArea.setCaps) this.answerArea.setCaps(this._caps);
   }
 
   _ensureBackground() {
@@ -630,6 +637,8 @@ export default class PageRenderer {
       this.answerArea.setEnabled(false); // 等 DONE 后在 _renderTable 重新启用
       // INPUT-06：同步高级计算开关（reset 不清开关，但保险重置）
       this.answerArea.setAdvancedCalc(this._advancedCalc);
+      // 🔴 task-112 GUI-3：换牌时一并重置子开关（同上，保险）
+      if (this.answerArea.setCaps) this.answerArea.setCaps(this._caps);
     }
     if (this.modal) this.modal.close();
     // INPUT-04：换牌时强制关闭提示 / 答案弹窗（提示进度自然清零）
