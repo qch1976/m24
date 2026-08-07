@@ -199,8 +199,17 @@ export function renderDisplay(t) {
 //   recip/fact/mod 作为【原子叶子】不单独成步（它们是牌面变形，不是玩家的一步运算）。
 export function advPostOrderSteps(t) {
   const steps = [];
+  // 🔴 task-113 GUI-4：mod 必须【从原子叶子里剔除】。
+  //   task-111 我把 recip/fact/mod 三者一并当叶子，但三者【元数不同】（实测 AST）：
+  //     · recip {op,arg}、fact {op,arg} ⇒ 一元，只把 1 张牌变形，不消耗第二张
+  //       ⇒ 不占玩家的一步，作原子叶子【正确】
+  //     · mod   {op,a,b}              ⇒ 二元，吃掉 2 张牌，本身就是玩家的一次运算
+  //       ⇒ 当叶子会让它被【吸收进父节点那一步】，于是同一步里做了两次运算
+  //         （(5%8)+9=14：先算 % 再算 +），4 张牌的解只剩 2 步，与初级解 3 步口径不一。
+  //   ⇒ mod 参与后序遍历、单独成步。其两侧在设计上恒为原始叶子（见上方
+  //     「mod 两侧限原始叶子」注释），故成步后 lhs/rhs 不会再嵌套子算式。
   const isAtom = (x) => !x || x.op === 'num' || x.op === 'one' || x.op === 'zero'
-    || x.op === 'recip' || x.op === 'fact' || x.op === 'mod';
+    || x.op === 'recip' || x.op === 'fact';
   const fmt = (fr) => {
     if (!fr) return '?';
     if (fr.d === 1n || fr.d === 1) return String(fr.n);
@@ -210,7 +219,9 @@ export function advPostOrderSteps(t) {
     if (isAtom(node)) return;
     traverse(node.a);
     traverse(node.b);
-    const op = node.op === '*' ? '×' : node.op === '/' ? '÷' : node.op;
+    // 🔴 task-113：mod 现在会单独成步，必须把内部 op 名 'mod' 映成展示符 '%'，
+    //   否则屏上会出现「5 mod 8」（泄露内部枚举名），与 advancedTop 里的 (5%8) 不一致。
+    const op = node.op === '*' ? '×' : node.op === '/' ? '÷' : node.op === 'mod' ? '%' : node.op;
     steps.push({
       step: steps.length + 1,
       lhs: renderDisplay(node.a),
