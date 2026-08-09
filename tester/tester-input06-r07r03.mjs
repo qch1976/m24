@@ -3,6 +3,8 @@
 // 依据 INPUT-06.md §4 R-01 / R-03 / R-06 / R-07；被测 commit 09efb3d
 // 禁 solver 自证：本脚本对 storage 用自建 mock，断言由独立期望表驱动
 import fs from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 let pass = 0, fail = 0;
 const ck = (name, ok, extra) => {
@@ -146,7 +148,36 @@ if (!AA || typeof AA.layoutFor !== 'function') {
   //   ⇒ keyCount 无法表达该量，且 js/ 内零消费者 ⇒ 属死字段，不作行为判据。
   //   真实键数断言已独立成支：tester/tester-task121-keycount-caps.mjs（21 条，32 组枚举）
   ck('R-03① keyCount(false) = 14（此值恰与实测关态一致）', OFF.keyCount === 14, `实际 ${OFF.keyCount}`);
-  ck('R-03① keyCount 为死字段：js/ 内无消费者 ⇒ 不得据其判真实键数（占位说明，恒真）', true);
+  // 🔴 task-122 自纠：此处原为 `ck(..., true)` **恒真占位** ⇒ 白送 1 个 pass、零鉴别力（废件）。
+  //   改为对「keyCount 无读取型消费者」做**真实源码验证**：扫 js/ 全目录，
+  //   排除注释行与对象字面量赋值行（`keyCount:`），剩余即读取点，应为 0。
+  //   注入验证：若将来有人真去读 keyCount（如 `if (L.keyCount > 14)`），本条立即判红。
+  {
+    // 🔴 第二次自纠：原用 `new URL('../js/', import.meta.url)` ⇒ 永远指向【脚本自身所在仓】。
+    //   副本注入验证时脚本从 /tmp/kc 跑，但 import.meta.url 仍解析到源仓 ⇒ 扫的是真身，
+    //   注入读取点后本条**仍报 0、仍绿** ⇒ 又一个恒绿废件。
+    //   改用 process.cwd()：与被测 js/ 同源（各支均以仓根为 cwd 运行），注入即可命中。
+    const jsDir = pathToFileURL(join(process.cwd(), 'js') + '/');
+    const readers = [];
+    const walk = (dir) => {
+      for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+        const u = new URL(ent.name + (ent.isDirectory() ? '/' : ''), dir);
+        if (ent.isDirectory()) { walk(u); continue; }
+        if (!ent.name.endsWith('.js')) continue;
+        const lines = fs.readFileSync(u, "utf8").split('\n');
+        lines.forEach((ln, i) => {
+          if (!ln.includes('keyCount')) return;
+          const t = ln.trim();
+          if (t.startsWith('//') || t.startsWith('*')) return;   // 注释
+          if (/keyCount\s*:/.test(ln)) return;                   // 对象字面量赋值（定义侧）
+          readers.push(`${ent.name}:${i + 1}`);
+        });
+      }
+    };
+    walk(jsDir);
+    ck('R-03① keyCount 在 js/ 内无读取型消费者（真实扫源码，非占位）',
+       readers.length === 0, `读取点 ${readers.length}${readers.length ? ': ' + readers.join(',') : ''}`);
+  }
   ck('R-03① 关闭态 advRow 不渲染（=== null）', OFF.advRow === null, `实际 ${JSON.stringify(OFF.advRow)}`);
   ck('R-03① 打开态 advRow 存在', !!ON.advRow);
 
