@@ -125,11 +125,11 @@ for (const cards of decks) {
 
 console.log(`采样：advanced 键 ${advTotal} 条｜开启态 primary 键 ${onPrimaryTotal} 条\n`);
 
-// ════════ C-A3：后缀定长格式 + 位序 R→F→M ════════
+// ════════ C-A3：后缀定长格式 + 位序 R→F→M→P→L ════════
 console.log('--- C-A3 后缀定长格式 / 位序 ---');
 check('C-A3.1 全部 advanced 键均含 | 后缀', advNoSuffix.length === 0,
       advNoSuffix.length ? JSON.stringify(advNoSuffix[0]) : `0 例外 / ${advTotal}`);
-check('C-A3.2 后缀恒匹配 /\\|R[01]F[01]M[01]$/（位序 R→F→M 定长）', badFormat.length === 0,
+check('C-A3.2 后缀恒匹配 /\\|R[01]F[01]M[01]P[01]L[01]$/（位序 R→F→M→P→L 定长）', badFormat.length === 0,
       badFormat.length ? JSON.stringify(badFormat[0]) : `0 违例 / ${advTotal}`);
 check('C-A3.3 无任何非法后缀变体', [...sufCount.keys()].every(s => SUFFIX_RE.test(s)),
       `后缀种类 ${sufCount.size}`);
