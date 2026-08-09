@@ -37,6 +37,12 @@ export const TokenType = {
   RECIP: 'recip',        // ★ INPUT-06 新增：倒数 1/x（前缀单目，操作数只能是叶子）
   FACT: 'fact',          // ★ INPUT-07 新增：阶乘 n!（后缀单目，限叶子）
   MOD: 'mod',            // ★ INPUT-07 新增：模 a%b（中缀双目，两侧限叶子）
+  // 🔴 INPUT-08 新增：幂与对数。两者均为**中缀双目**（各吃 2 张牌），
+  //   合法性规则与 MOD 同构：两侧限原始牌面叶子、不得作用于高级符号输出。
+  //   ⚠️ 切勿当作单目/叶子处理 —— GUI-4 根因正是 mod 双目被当叶子，
+  //   导致 4 张牌只剩 2 步、一次吐 2 步。
+  POW: 'pow',            // ★ INPUT-08：幂 a^b（中缀双目）；开方属 P 位，不单设记号
+  LOG: 'log',            // ★ INPUT-08：对数 log_a b（中缀双目）
 };
 
 const OP_DISPLAY = { '+': '+', '-': '-', '*': '×', '/': '÷' };
@@ -68,7 +74,14 @@ export const ADV_ANCHOR = {
   backBtn:   { x: 340, y: 566, w: 46,  h: 44  },   // [返回] ✕ 内嵌 formula 行右侧
   numRow:    { x: 25,  y: 624, w: 361, h: 60,  cols: 4, gap: 8 },
   opRow:     { x: 25,  y: 694, w: 361, h: 52,  cols: 6, gap: 5 },
-  advRow:    { x: 25,  y: 756, w: 361, h: 52,  cols: 3, gap: 0 }, // 1/x 居中占 1/3 宽
+  // 🔴 INPUT-08 task-120：advRow 由 3 列扩为 **5 列**，新增 a^b / log 两键。
+  //   选 5 列而非新增第二行的缘由（已实测）：
+  //     advRow 底=756+52=808，ctrlRow 顶=818 ⇒ 间隙仅 10 DP，装不下第二行（需 62 DP）；
+  //     若加行则 area/formula/numRow/opRow 整套锛点須位移 ⇒ 违反 INPUT-06/07「不重排布局」约定。
+  //   ⇒ 扩列方案：行 y/h **全不变**，单键宽 361/5=72.2 DP ≥ 44 DP tap 下限（已校）。
+  //   ⚠️ 列序固定：0=n! 1=1/x 2=% 3=a^b 4=log —— 1/x 不再居中，
+  //      但各键位置仍恒定（不因开关开关而串位），避免误触。
+  advRow:    { x: 25,  y: 756, w: 361, h: 52,  cols: 5, gap: 0 }, // n! 1/x % a^b log
   ctrlRow:   { x: 25,  y: 818, w: 361, h: 52,  cols: 4, gap: 8 },
 };
 
@@ -118,6 +131,9 @@ const ADV_KEY_LABEL = '1/x';
 // 依据 INPUT-07 §3「答题区新增 ! % 两按钮，使用现有空间，不重排布局」。
 const FACT_KEY_LABEL = 'n!';
 const MOD_KEY_LABEL = '%';
+// 🔴 INPUT-08：屏显用数学符号，不泄露引擎内部枚举名（pow/log）
+const POW_KEY_LABEL = 'a^b';
+const LOG_KEY_LABEL = 'log';
 
 // 答题区滑入动效（§1.2.1 + 方案 §1.3）
 export const SLIDE_MS = 220;          // 200~250ms 区间居中，距 300ms 卡顿线余 36%
@@ -172,6 +188,13 @@ export function checkLegality(tokens) {
       if (prev && prev.type === TokenType.MOD) {
         return { legal: false, allCardsUsed: false, reason: 'mod_dangling' };
       }
+      // 🔴 INPUT-08：^ / log 后面同样不能直接跟运算符（右操作数悬空）
+      if (prev && prev.type === TokenType.POW) {
+        return { legal: false, allCardsUsed: false, reason: 'pow_dangling' };
+      }
+      if (prev && prev.type === TokenType.LOG) {
+        return { legal: false, allCardsUsed: false, reason: 'log_dangling' };
+      }
     } else if (t.type === TokenType.RECIP) {
       // ★ INPUT-06：recip 前置位置与数字相同（不得紧跟数字 / 右括号，避免隐式乘）
       if (prev && (prev.type === TokenType.NUMBER || prev.type === TokenType.RIGHT_PAREN)) {
@@ -205,6 +228,19 @@ export function checkLegality(tokens) {
       // ★ §1.5 通则：(7%3)%2 与 (3!)%2 —— % 左侧不得是高级符号输出
       if (prev.type === TokenType.MOD || prev.type === TokenType.FACT) {
         return { legal: false, allCardsUsed: false, reason: 'mod_operand_not_leaf' };
+      }
+    } else if (t.type === TokenType.POW || t.type === TokenType.LOG) {
+      // 🔴 INPUT-08：^ 与 log 均为中缀双目，规则与 MOD 同构。
+      //   两侧須为原始牌面叶子（不得叠加修饰，也不得作用于 ! / % / 幂 / 对数的输出）。
+      const nm = t.type === TokenType.POW ? 'pow' : 'log';
+      if (!prev) return { legal: false, allCardsUsed: false, reason: `${nm}_dangling` };
+      if (prev.type === TokenType.OPERATOR || prev.type === TokenType.LEFT_PAREN ||
+          prev.type === TokenType.RECIP) {
+        return { legal: false, allCardsUsed: false, reason: `${nm}_dangling` };
+      }
+      if (prev.type === TokenType.MOD || prev.type === TokenType.FACT ||
+          prev.type === TokenType.POW || prev.type === TokenType.LOG) {
+        return { legal: false, allCardsUsed: false, reason: `${nm}_operand_not_leaf` };
       }
     } else if (t.type === TokenType.LEFT_PAREN) {
       if (prev && (prev.type === TokenType.NUMBER || prev.type === TokenType.RIGHT_PAREN)) {
@@ -244,6 +280,10 @@ export function checkLegality(tokens) {
       last.type === TokenType.MOD) {      // ★ INPUT-07：以 % 结尾不完整
     return { legal: false, allCardsUsed: false, reason: 'op_end' };
   }
+  // 🔴 INPUT-08：以 ^ 或 log 结尾同样不完整（右操作数缺失）
+  if (last.type === TokenType.POW || last.type === TokenType.LOG) {
+    return { legal: false, allCardsUsed: false, reason: 'op_end' };
+  }
 
   // 4 张牌各一次
   const used = new Set();
@@ -277,6 +317,13 @@ export function formatTokens(tokens, cardValues) {
       parts.push('!');    // ★ INPUT-07：后缀记号
     } else if (t.type === TokenType.MOD) {
       parts.push('%');    // ★ INPUT-07 R-12：% 为唯一记号，与按钮/[提示]/[答案] 三处一致
+    } else if (t.type === TokenType.POW) {
+      // 🔴 INPUT-08 R-12 同构：屏显用 ^，与引擎分步 op 映射的 '^' 一致
+      //   （引擎内部枚举名 'pow' 不得上屏）
+      parts.push('^');
+    } else if (t.type === TokenType.LOG) {
+      // 🔴 对数屏显为 log_，与引擎分步 op 映射的 'log' 一致
+      parts.push('log_');
     }
   }
   return parts.join('');
@@ -298,7 +345,9 @@ export default class AnswerArea {
     // 🔴 task-112 GUI-3：三项能力子开关，控 advRow 内哪些键可见。
     //   默认全 true（与 Settings 旧存档归 true 口径一致），
     //   ⇒ 不调 setCaps 时行为与 task-111 逐字节相同。
-    this.caps = { recip: true, fact: true, mod: true };
+    // 🔴 INPUT-08 §10.1：新增 pow/log 两位。默认 **false**（与上三项有意不对称），
+    //   与引擎 allowPow/allowLog 的「=== true 才开」同口径。
+    this.caps = { recip: true, fact: true, mod: true, pow: false, log: false };
     this.areaState = AREA_STATE.CLOSED;  // 弹出式答题区状态机
     this._slideStartAt = 0;       // 动画起点
     this._slideProgress = 0;      // 0..1
@@ -322,16 +371,21 @@ export default class AnswerArea {
   // ============ 🔴 task-112 GUI-3：子开关联动答题区按钮 ============
   // 设置页关掉某项高级运算后，答题区必须同步抽掉对应按钮，
   // 否则用户能点一个引擎已禁用的运算符（能输入却永远算不对）。
-  //   参数与 PageRenderer._caps 同形：{ recip, fact, mod }，非 false 即为开。
+  //   参数与 PageRenderer._caps 同形：{ recip, fact, mod, pow, log }。
+  //   🔴 INPUT-08 §10.1：recip/fact/mod 非 false 即开；pow/log **=== true 才开**（有意不对称）。
   setCaps(caps) {
     const next = {
       recip: !caps || caps.recip !== false,
       fact: !caps || caps.fact !== false,
       mod: !caps || caps.mod !== false,
+      pow: !!caps && caps.pow === true,
+      log: !!caps && caps.log === true,
     };
     const changed = next.recip !== this.caps.recip
       || next.fact !== this.caps.fact
-      || next.mod !== this.caps.mod;
+      || next.mod !== this.caps.mod
+      || next.pow !== this.caps.pow
+      || next.log !== this.caps.log;
     if (!changed) return;
     this.caps = next;
     // 已输入的算式里如有刚被禁用的记号，必须清掉。
@@ -351,6 +405,10 @@ export default class AnswerArea {
       (t.type === TokenType.RECIP && !this.caps.recip)
       || (t.type === TokenType.FACT && !this.caps.fact)
       || (t.type === TokenType.MOD && !this.caps.mod)
+      // 🔴 INPUT-08：幂/对数同此待遇 —— 开关关后已输入的记号必须清掉，
+      //   否则留下「屏上可见、但按钮已消失、且引擎不收」的死算式。
+      || (t.type === TokenType.POW && !this.caps.pow)
+      || (t.type === TokenType.LOG && !this.caps.log)
     ));
   }
 
@@ -361,6 +419,9 @@ export default class AnswerArea {
     if (advKey === 'recip') return this.caps.recip !== false;
     if (advKey === 'fact') return this.caps.fact !== false;
     if (advKey === 'mod') return this.caps.mod !== false;
+    // 🔴 INPUT-08 §10.1：pow/log 用 === true（有意不对称，同引擎 allowPow/allowLog）
+    if (advKey === 'pow') return this.caps.pow === true;
+    if (advKey === 'log') return this.caps.log === true;
     return false;
   }
 
@@ -614,6 +675,18 @@ export default class AnswerArea {
         this._drawButton(ctx, btnM, MOD_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
         this._buttonRects.push({ key: 'adv:mod', kind: 'adv', advKey: 'mod', disabled, ...btnM });
       }
+      // 🔴 INPUT-08：列 3 = a^b（幂，含开方）、列 4 = log（对数）
+      //   同样「开关关掉则既不绘制也不入命中区」，且列位恒定不串位。
+      if (this.isAdvKeyEnabled('pow')) {
+        const btnP = S({ x: advRow.x + advW * 3, y: advRow.y, w: advW, h: advRow.h });
+        this._drawButton(ctx, btnP, POW_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+        this._buttonRects.push({ key: 'adv:pow', kind: 'adv', advKey: 'pow', disabled, ...btnP });
+      }
+      if (this.isAdvKeyEnabled('log')) {
+        const btnL = S({ x: advRow.x + advW * 4, y: advRow.y, w: advW, h: advRow.h });
+        this._drawButton(ctx, btnL, LOG_KEY_LABEL, BTN_BG_ADV, disabled, scale, 18);
+        this._buttonRects.push({ key: 'adv:log', kind: 'adv', advKey: 'log', disabled, ...btnL });
+      }
     }
 
     // 控制键区
@@ -712,6 +785,9 @@ export default class AnswerArea {
       if (!this.isAdvKeyEnabled(btn.advKey)) return { action: 'none' };
       if (btn.advKey === 'fact') { this.addToken({ type: TokenType.FACT }); return { action: 'changed' }; }
       if (btn.advKey === 'mod') { this.addToken({ type: TokenType.MOD }); return { action: 'changed' }; }
+      // 🔴 INPUT-08：幂/对数入 token（双目，后续須再点一张牌作右操作数）
+      if (btn.advKey === 'pow') { this.addToken({ type: TokenType.POW }); return { action: 'changed' }; }
+      if (btn.advKey === 'log') { this.addToken({ type: TokenType.LOG }); return { action: 'changed' }; }
       this.addToken({ type: TokenType.RECIP });
       return { action: 'changed' };
     }

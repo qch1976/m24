@@ -45,21 +45,29 @@ const SLOT_STROKE = '#DDDDDD';
 const PANEL_ANCHOR = {
   // 🔴 task-111 GUI-2：新增阶乘/模两行子开关，且四行开关均需 h≥44 DP
   //   ⇒ 面板加高 600→734（底部 145+734=879 < 891 设计高）
-  panel: { x: 25, y: 145, w: 361, h: 734 },
-  title: { x: 35, y: 155, w: 341, h: 40 },
-  divider: { x: 25, y: 195, w: 361, h: 2 },
-  section: { x: 35, y: 215, w: 341, h: 30 },
-  radio1: { x: 35, y: 255, w: 341, h: 40 },
-  radio2: { x: 35, y: 305, w: 341, h: 40 },
-  divider2: { x: 25, y: 355, w: 361, h: 2 },
+  // 🔴 INPUT-08 task-120：再加 capPow/capLog 两行（每行 48 DP 步距）⇒ 共需 +96 DP。
+  //   ⚠️ 若沿用 y=145 只加高，底部会到 145+830=975 > 891 设计高 ⇒ 溢出屏幕。
+  //   ⇒ 采【面板顶部上移 96，底部保持 879 不变】：y 145→49、h 734→830。
+  //   capMod 及其以上元素同步上移 96；divider3 及其以下元素 y 不变，
+  //   新增两行正好填入 capMod 与 divider3 之间，行步距恒 48、tap 高恒 44。
+  panel: { x: 25, y: 49, w: 361, h: 830 },
+  title: { x: 35, y: 59, w: 341, h: 40 },
+  divider: { x: 25, y: 99, w: 361, h: 2 },
+  section: { x: 35, y: 119, w: 341, h: 30 },
+  radio1: { x: 35, y: 159, w: 341, h: 40 },
+  radio2: { x: 35, y: 209, w: 341, h: 40 },
+  divider2: { x: 25, y: 259, w: 361, h: 2 },
   // INPUT-06：新增「高级计算」开关分段（插入 divider2 与 moreLabel 之间）
-  section2: { x: 35, y: 365, w: 341, h: 30 },
+  section2: { x: 35, y: 269, w: 341, h: 30 },
   // ⚠️ 可点区高度必须 ≥ 44 DP（无障碍规范，selftest_input06_layout 设有硬校验）
-  advToggle: { x: 35, y: 399, w: 341, h: 44 },      // 主开关：高级计算
+  advToggle: { x: 35, y: 303, w: 341, h: 44 },      // 主开关：高级计算
   // 🔴 task-111：三项能力子开关（缩进 16DP，仅主开关开启时可点），同样 h=44
-  capRecipToggle: { x: 51, y: 447, w: 325, h: 44 },
-  capFactToggle: { x: 51, y: 495, w: 325, h: 44 },
-  capModToggle: { x: 51, y: 543, w: 325, h: 44 },
+  capRecipToggle: { x: 51, y: 351, w: 325, h: 44 },
+  capFactToggle: { x: 51, y: 399, w: 325, h: 44 },
+  capModToggle: { x: 51, y: 447, w: 325, h: 44 },
+  // 🔴 INPUT-08 §10.1：幂/对数两行（默认关，与上三项有意不对称）
+  capPowToggle: { x: 51, y: 495, w: 325, h: 44 },
+  capLogToggle: { x: 51, y: 543, w: 325, h: 44 },
   divider3: { x: 25, y: 599, w: 361, h: 2 },
   // 以下原有字段均下移（相对 INPUT-06 再 +138 DP）
   moreLabel: { x: 35, y: 609, w: 341, h: 30 },
@@ -98,6 +106,9 @@ export default class SettingsPanel {
     this._pendingCapRecip = true; this._currentCapRecip = true;
     this._pendingCapFact = true; this._currentCapFact = true;
     this._pendingCapMod = true; this._currentCapMod = true;
+    // 🔴 INPUT-08 §10.1：pow/log 默认 **false**（与上三项默认 true 有意不对称）
+    this._pendingCapPow = false; this._currentCapPow = false;
+    this._pendingCapLog = false; this._currentCapLog = false;
   }
 
   /**
@@ -112,9 +123,14 @@ export default class SettingsPanel {
     this._pendingAdv = !!s.advancedCalc;
     // 🔴 task-111：子开关（旧存档缺字段时 loadSettings 已归 true）
     const cR = s.capRecip !== false, cF = s.capFact !== false, cM = s.capMod !== false;
+    // 🔴 §10.1：pow/log 用 === true（不是 !== false），与引擎 allowPow/allowLog 同口径。
+    //   ⚠️ 后人勿为「与上行一致」改成 !== false —— 旧存档无字段时会变成默认开。
+    const cP = s.capPow === true, cL = s.capLog === true;
     this._currentCapRecip = cR; this._pendingCapRecip = cR;
     this._currentCapFact = cF; this._pendingCapFact = cF;
     this._currentCapMod = cM; this._pendingCapMod = cM;
+    this._currentCapPow = cP; this._pendingCapPow = cP;
+    this._currentCapLog = cL; this._pendingCapLog = cL;
     this._onSave = onSave || null;
     this.visible = true;
     this._buttonRects = [];
@@ -152,6 +168,11 @@ export default class SettingsPanel {
       recip: this._currentCapRecip !== false,
       fact: this._currentCapFact !== false,
       mod: this._currentCapMod !== false,
+      // 🔴 INPUT-08 §10.1：必须同时吐 pow/log，否则设置页开了也传不到引擎。
+      //   引擎读的是 caps.pow / caps.log（RecipSolver allowPow/allowLog），
+      //   此处不吐就是 §10.1 报的「静默全关」：功能已实现但玩家永远用不到。
+      pow: this._currentCapPow === true,   // §10.1：=== true 才开
+      log: this._currentCapLog === true,
     };
   }
 
@@ -159,6 +180,7 @@ export default class SettingsPanel {
     const ok = saveSettings({
       dealMode: this._pendingMode, advancedCalc: this._pendingAdv,
       capRecip: this._pendingCapRecip, capFact: this._pendingCapFact, capMod: this._pendingCapMod,
+      capPow: this._pendingCapPow, capLog: this._pendingCapLog,   // §10.1
     });
     if (ok) {
       this._currentMode = this._pendingMode;
@@ -167,6 +189,8 @@ export default class SettingsPanel {
       this._currentCapRecip = this._pendingCapRecip;
       this._currentCapFact = this._pendingCapFact;
       this._currentCapMod = this._pendingCapMod;
+      this._currentCapPow = this._pendingCapPow;
+      this._currentCapLog = this._pendingCapLog;
       if (this._onSave) this._onSave(this._currentMode, this._currentAdv, this.getCurrentCaps());
     }
     this.close();
@@ -180,6 +204,8 @@ export default class SettingsPanel {
     this._pendingCapRecip = this._currentCapRecip;
     this._pendingCapFact = this._currentCapFact;
     this._pendingCapMod = this._currentCapMod;
+    this._pendingCapPow = this._currentCapPow;   // §10.1：取消須一并回滚
+    this._pendingCapLog = this._currentCapLog;
     this.close();
   }
 
@@ -268,6 +294,9 @@ export default class SettingsPanel {
       ['capRecip', PANEL_ANCHOR.capRecipToggle, '倒数 1/x', this._pendingCapRecip],
       ['capFact', PANEL_ANCHOR.capFactToggle, '阶乘 n!', this._pendingCapFact],
       ['capMod', PANEL_ANCHOR.capModToggle, '取模 a%b', this._pendingCapMod],
+      // 🔴 INPUT-08 §10.1：幂/对数两行。开方属 P 位，受 capPow 控，不单设开关。
+      ['capPow', PANEL_ANCHOR.capPowToggle, '幂 a^b / 开方', this._pendingCapPow],
+      ['capLog', PANEL_ANCHOR.capLogToggle, '对数 log_a b', this._pendingCapLog],
     ];
     for (const [key, anchor, label, on] of caps) {
       const r = S(anchor);
@@ -426,6 +455,8 @@ export default class SettingsPanel {
     if (key === 'toggle:capRecip') { this._pendingCapRecip = !this._pendingCapRecip; return { action: 'consumed' }; }
     if (key === 'toggle:capFact')  { this._pendingCapFact = !this._pendingCapFact;   return { action: 'consumed' }; }
     if (key === 'toggle:capMod')   { this._pendingCapMod = !this._pendingCapMod;     return { action: 'consumed' }; }
+    if (key === 'toggle:capPow')   { this._pendingCapPow = !this._pendingCapPow;     return { action: 'consumed' }; }
+    if (key === 'toggle:capLog')   { this._pendingCapLog = !this._pendingCapLog;     return { action: 'consumed' }; }
     if (key === 'save')   { this._save();  return { action: 'saved' }; }
     if (key === 'cancel') { this._cancel(); return { action: 'cancelled' }; }
     if (key === 'mask')   { this._cancel(); return { action: 'cancelled' }; }

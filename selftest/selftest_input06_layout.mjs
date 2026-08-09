@@ -25,7 +25,11 @@ console.log('='.repeat(70));
 ck('键数 4+6+1+4 = 15', 4 + 6 + 1 + 4 === 15);
 ck('numRow cols=4', A.numRow.cols === 4);
 ck('opRow cols=6', A.opRow.cols === 6);
-ck('advRow cols=3（1/x 居中占中列）', A.advRow.cols === 3);
+// 🔴 INPUT-08 task-120：advRow 由 3 列扩为 5 列（新增 a^b / log 两键）。
+//   选扩列而非新增第二行：advRow 底=808、ctrlRow 顶=818 ⇒ 间隙仅 10 DP，
+//   装不下第二行（需 62 DP）；加行则須位移整套锛点，违反「不重排布局」约定。
+//   行 y/h 全不变；单键宽 361/5=72.2 DP ≥ 44 仍满足 tap 下限（下方统一校验）。
+ck('advRow cols=5（n! 1/x % a^b log 五列）', A.advRow.cols === 5);
 ck('ctrlRow cols=4', A.ctrlRow.cols === 4);
 const rows = ['formula', 'numRow', 'opRow', 'advRow', 'ctrlRow'];
 for (let i = 0; i < rows.length - 1; i++) {

@@ -1,4 +1,4 @@
-// m24 - Settings.mjs (ESM copy for Node self-test)
+// m24 - Settings.js
 // INPUT-05：设置持久化模块 / INPUT-06：v1 → v2 迁移（新增 advancedCalc）
 // 依据：106-INPUT05 §7 + INPUT-06.md §1.5 + 170-INPUT06-Architect方案.md §6
 //
@@ -35,6 +35,12 @@ const DEFAULT_SETTINGS = Object.freeze({
   capRecip: true,
   capFact: true,
   capMod: true,
+  // 🔴 INPUT-08 §10.1：capPow/capLog 默认 **false**，与上三项的默认 true **有意不对称**。
+  //   缘由：引擎侧 pow/log 采「=== true 才开」（RecipSolver allowPow/allowLog），
+  //   若此处默认 true，旧存档用户升级后会凭空多出幂/对数解 ⇒ 破 R-01 零误伤。
+  //   ⚠️ 后人勿为「与 capRecip/capFact/capMod 一致」而改成 true —— 那不是笔误，是刻意的。
+  capPow: false,
+  capLog: false,
 });
 
 function defaults() {
@@ -42,6 +48,7 @@ function defaults() {
   return {
     version: 2, dealMode: DEAL_MODE.SOLVABLE, advancedCalc: false,
     capRecip: true, capFact: true, capMod: true,
+    capPow: false, capLog: false,   // §10.1：默认关（与上三项有意不对称）
   };
 }
 
@@ -50,6 +57,14 @@ function defaults() {
 //   因为子开关的【历史隐含值】是全开，而非全关）。
 function _cap(v) {
   return typeof v === 'boolean' ? v : true;
+}
+
+// 🔴 INPUT-08 §10.1：pow/log 专用归一 —— 非 boolean 一律归 **false**（默认关）。
+//   不可复用 _cap()：那是「默认 true」，对 pow/log 会让旧存档凭空开启高级能力。
+//   与引擎 allowPow/allowLog 的「=== true 才开」严格同口径。
+//   🔴 守护：改成默认 true 会使测试 §10.1 门禁与 R-01 零误伤断言判红。
+function _capOff(v) {
+  return v === true;
 }
 
 function _validMode(m) {
@@ -81,6 +96,7 @@ export function loadSettings() {
       return {
         version: 2, dealMode: raw.dealMode, advancedCalc: false,
         capRecip: true, capFact: true, capMod: true,
+        capPow: false, capLog: false,   // §10.1：v1 存档无此概念 ⇒ 关
       };
     }
     if (raw.version !== 2) return defaults();                                  // D4
@@ -89,11 +105,13 @@ export function loadSettings() {
       return {
         version: 2, dealMode: raw.dealMode, advancedCalc: false,
         capRecip: _cap(raw.capRecip), capFact: _cap(raw.capFact), capMod: _cap(raw.capMod),
+        capPow: _capOff(raw.capPow), capLog: _capOff(raw.capLog),
       };
     }
     return {
       version: 2, dealMode: raw.dealMode, advancedCalc: raw.advancedCalc,
       capRecip: _cap(raw.capRecip), capFact: _cap(raw.capFact), capMod: _cap(raw.capMod),
+      capPow: _capOff(raw.capPow), capLog: _capOff(raw.capLog),
     };
   } catch (e) {
     return defaults();                                                         // D7
@@ -108,6 +126,8 @@ export function saveSettings(settings) {
       capRecip: _cap(settings && settings.capRecip),
       capFact: _cap(settings && settings.capFact),
       capMod: _cap(settings && settings.capMod),
+      capPow: _capOff(settings && settings.capPow),
+      capLog: _capOff(settings && settings.capLog),
     };
     return _setStorage(STORAGE_KEY, clean);
   } catch (e) {

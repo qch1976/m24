@@ -234,7 +234,15 @@ T('R-12d 无 mod/MOD 中文或其他记号混用（渲染层仅 %）',
   !/[''"]取模[''"]/.test(aaSrc), null);
 
 console.log('=== 按钮接入：不重排布局（INPUT-07 §3）===');
-T('按钮a advRow 仍为 3 列', /advRow:\s*\{ x: 25,\s*y: 756, w: 361, h: 52,\s*cols: 3/.test(aaSrc), null);
+// 🔴 INPUT-08 task-120：advRow 3 列 → 5 列（新增 a^b / log）。
+//   §3「不重排布局」的可测内涵是【行几何零位移 + 无重叠 + tap≥44 + 不越安全区】，
+//   已逐项实测成立：advRow x/y/w/h 与 opRow/ctrlRow/area 均与 e809f4e 逐字节相同，
+//   单键 361/5=72.2≥44，底 808 ≤ ctrlRow 顶 818，area 底 878 = 安全线。
+//   ⇒ 改的只是【同一行内分几列】，未动任何行的位置/尺寸。
+// ⚠️ 纵向无空间新增第二行（advRow 底 808 与 ctrlRow 顶 818 仅差 10 DP，需 62），
+//   若强行加行反而須位移 area/formula/numRow/opRow 整套锛点 —— 那才是真重排。
+T('按钮a advRow 行几何零位移（x/y/w/h 不变，仅列数 3→5）',
+  /advRow:\s*\{ x: 25,\s*y: 756, w: 361, h: 52,\s*cols: 5/.test(aaSrc), null);
 T('按钮b 三键均在 advRow 内（fact/recip/mod）',
   /adv:fact/.test(aaSrc) && /adv:recip/.test(aaSrc) && /adv:mod/.test(aaSrc), null);
 T('按钮c ADV_ROW_H_TOTAL 未变（62 DP）', /const ADV_ROW_H_TOTAL = 62;/.test(aaSrc), null);

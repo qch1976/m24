@@ -11,7 +11,12 @@ const ck = track((n, c, e) => { if (c) { pass++; console.log('  ok  ' + n + (e ?
 //   本文件断言用【整对象 JSON.stringify 全等】⇒ 新字段必须写进期望值，
 //   不能改成子集比较（那会削弱 R-10「往返一致 + 不得多出字段」的原意）。
 //   子开关缺省恒 true（历史隐含值是全开），故所有既有期望值统一补 CAPS。
-const CAPS = { capRecip: true, capFact: true, capMod: true };
+const CAPS = { capRecip: true, capFact: true, capMod: true, capPow: false, capLog: false };
+// 🔴 INPUT-08 §10.1：新增 capPow/capLog，缺省恒 **false**（与上三项有意不对称）。
+//   缘由：引擎侧 allowPow/allowLog 采「=== true 才开」；若此处默认 true，
+//   旧存档用户升级后会凭空多出幂/对数解 ⇒ 破 R-01 零误伤。
+//   ⚠️ 本文件 22 条在 task-120 当场判红，正是【整对象全等】断言在尽职
+//   （新字段必被发现）。按 L11 既定约定补入期望值，**不**降为子集比较。
 const D = { version: 2, dealMode: 'solvable', advancedCalc: false, ...CAPS };
 
 console.log('='.repeat(70));

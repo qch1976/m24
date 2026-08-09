@@ -139,6 +139,11 @@ export default class PageRenderer {
       recip: this._settings.capRecip !== false,
       fact: this._settings.capFact !== false,
       mod: this._settings.capMod !== false,
+      // 🔴 INPUT-08 §10.1：pow/log 必须一并造入 caps，否则引擎永远收不到
+      //   （引擎读 caps.pow/caps.log）⇒ 玩家侧幂/对数静默恒为关。
+      //   取 === true：与引擎 allowPow/allowLog 同口径，旧存档无字段 = 关。
+      pow: this._settings.capPow === true,
+      log: this._settings.capLog === true,
     };
     this.answerArea.setAdvancedCalc(this._advancedCalc);
     // 🔴 task-112 GUI-3：启动时就把子开关同步给答题区，
@@ -185,12 +190,15 @@ export default class PageRenderer {
   _applyAdvancedCalc(on, caps) {
     this._advancedCalc = !!on;
     // 🔴 task-111：子开关同步（不传则从 _settings 重读）
-    if (caps) this._caps = { recip: caps.recip !== false, fact: caps.fact !== false, mod: caps.mod !== false };
+    // 🔴 INPUT-08 §10.1：pow/log 也须透传（=== true 才开）
+    if (caps) this._caps = { recip: caps.recip !== false, fact: caps.fact !== false, mod: caps.mod !== false, pow: caps.pow === true, log: caps.log === true };
     else if (this._settings) {
       this._caps = {
         recip: this._settings.capRecip !== false,
         fact: this._settings.capFact !== false,
         mod: this._settings.capMod !== false,
+        pow: this._settings.capPow === true,
+        log: this._settings.capLog === true,
       };
     }
     if (this.answerArea) this.answerArea.setAdvancedCalc(this._advancedCalc);
