@@ -1,4 +1,11 @@
-// tester-close-ignore-diff.mjs
+// report-close-ignore-diff.mjs
+// 🔴 task-122 经理裁定改名（原 tester-close-ignore-diff.mjs）：
+//   本文件**不是门禁/测试**，是 task-50 的一次性报告脚本 —— 实证：
+//     · `fail` / `FAIL` / `✗` 0 行，条件判红 0 处（无任何失败路径）
+//     · `readFileSync` / `execSync` / `spawnSync` **0 次**，`console.log` 14 次（完全不取数）
+//     · 末尾无条件 `console.log('OVERALL: PASS')` + `exit(0)` ⇒ **恒绿废件**，放在 tester/ 会被误当门禁
+//   它想验的 `^_[^/]*$` 白名单，已由 INPUT-04 收尾单独验收过，重造判据属重复投入。
+//   ⇒ 处置：`git mv` 加 `report-` 前缀去掉门禁语义（保留历史），**不补判定逻辑**。D-11 据此关闭。
 // Tester 独立采样：INPUT-04 收尾 —— packOptions.ignore 白名单变更（commit 1b42387）
 // 对主包体积无影响的独立验证（回复 Manager task-50 提示 3）
 //
