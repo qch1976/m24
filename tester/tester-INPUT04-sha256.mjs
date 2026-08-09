@@ -34,3 +34,6 @@ console.log('=== git diff 行数 ===');
 const diff = execSync(`git diff ${BASE} ${HEAD} -- ${FILES.join(' ')}`, { maxBuffer: 100 * 1024 * 1024 }).toString();
 console.log(`diff-lines=${diff.split('\n').length - 1}`);
 console.log(`OVERALL: ${allYes ? 'PASS' : 'FAIL'}`);
+// 🔴 task-121 修正：原有 OVERALL: FAIL 判定但**无退出码** ⇒ CI 只看 rc 会吞红。
+//   实测修前：注入 allYes=false 得 OVERALL: FAIL 而 REAL_STATUS 仍 0。条款 8 要求 rc 反映断言。
+process.exit(allYes ? 0 : 1);

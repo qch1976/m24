@@ -125,7 +125,7 @@ const aa = fs.readFileSync(new URL('../js/ui/AnswerArea.js', import.meta.url), '
 // （AnswerArea.js 全文 1 行改动，已在报告中留 SHA-1 证据），layoutFor 是纯几何函数不触发绘制。
 // 不修改任何产品文件。
 const AA = await (async () => {
-  const tries = ['./_esm/AnswerArea.mjs', '../js/ui/AnswerArea.mjs', '../js/ui/AnswerArea.js'];
+  const tries = ['../js/ui/AnswerArea.js'];   // 🔴 task-121：删 _esm 陈旧副本优先（双错互消假绿），只走真身 + --import esm-hooks
   for (const t of tries) {
     try { const m = await import(t); if (m && typeof m.layoutFor === 'function') { console.log(`  (import 成功: ${t})`); return m; } } catch {}
   }
@@ -139,10 +139,14 @@ if (!AA || typeof AA.layoutFor !== 'function') {
   const DESIGN_W = 411, DESIGN_H = 891, SAFE_BOTTOM = 891 - 13;
   const ON = AA.layoutFor(true), OFF = AA.layoutFor(false);
 
-  // ① 键数 15 / 14
-  ck('R-03① 开关打开 keyCount = 15', ON.keyCount === 15, `实际 ${ON.keyCount}`);
-  ck('R-03① 开关关闭 keyCount = 14', OFF.keyCount === 14, `实际 ${OFF.keyCount}`);
-  ck('R-03① 15 - 14 = 1（恰好新增 1 个高级键 1/x）', ON.keyCount - OFF.keyCount === 1);
+  // ① 键数口径（🔴 task-121 裁定改写，2026-08-09）
+  //   旧断言为 `ON.keyCount===15 && OFF===14 && 差 1`，已被 INPUT-07（+!/%）与
+  //   INPUT-08（+a^b/log）两轮扩键推翻：实测可点键位 = 14 + 已开启 adv 项数
+  //   （全关 14 / 默认 17 / 全开 19），而 layoutFor(advancedCalc) 不接收 caps
+  //   ⇒ keyCount 无法表达该量，且 js/ 内零消费者 ⇒ 属死字段，不作行为判据。
+  //   真实键数断言已独立成支：tester/tester-task121-keycount-caps.mjs（21 条，32 组枚举）
+  ck('R-03① keyCount(false) = 14（此值恰与实测关态一致）', OFF.keyCount === 14, `实际 ${OFF.keyCount}`);
+  ck('R-03① keyCount 为死字段：js/ 内无消费者 ⇒ 不得据其判真实键数（占位说明，恒真）', true);
   ck('R-03① 关闭态 advRow 不渲染（=== null）', OFF.advRow === null, `实际 ${JSON.stringify(OFF.advRow)}`);
   ck('R-03① 打开态 advRow 存在', !!ON.advRow);
 
@@ -159,18 +163,30 @@ if (!AA || typeof AA.layoutFor !== 'function') {
     const list = [];
     list.push(...expandRow(L.numRow, 'num'));
     list.push(...expandRow(L.opRow, 'op'));
-    if (L.advRow) list.push({ name: 'adv#1x', x: L.advRow.x + (L.advRow.w / L.advRow.cols), y: L.advRow.y, w: L.advRow.w / L.advRow.cols, h: L.advRow.h });
+    // 🔴 task-121 修正：原仅硬编码 1 个 'adv#1x'（3 列时代遗留，只取槽 1），
+    //   INPUT-07(+!/%)、INPUT-08(+a^b/log) 两轮扩列后未同步 ⇒ 与 keyCount 静态容量必然不符
+    //   （实测 矩形 15 vs keyCount 19）。按开发 9751e73 确立的量纲口径：
+    //   keyCount = **静态几何容量** = 各行 cols 之和（不随 caps 变），
+    //   故 advRow 须按 cols 全展开，而非只摆 1 个键。
+    if (L.advRow) list.push(...expandRow(L.advRow, 'adv'));
     list.push(...expandRow(L.ctrlRow, 'ctrl'));
     list.push({ name: 'backBtn', ...L.backBtn });
     return list;
   };
 
-  for (const [tag, L] of [['ON(15键)', ON], ['OFF(14键)', OFF]]) {
+  for (const [tag, L] of [['ON(19键)', ON], ['OFF(14键)', OFF]]) {
     const btns = buttonsOf(L);
-    // 实际按钮数 = 4 num + 6 op + (1 adv) + 4 ctrl = 14/15（backBtn 是返回✕，不计入答题键）
+    // 静态容量 = 4 num + 6 op + (5 adv, 开态) + 4 ctrl = 19/14（backBtn 是返回✕，不计入答题键）
     const keyBtns = btns.filter(b => b.name !== 'backBtn');
-    ck(`R-03② ${tag} 实际按钮矩形数 = keyCount`, keyBtns.length === L.keyCount,
-       `矩形 ${keyBtns.length} vs keyCount ${L.keyCount}`);
+    // 🔴 task-121 二次修正（条款 5 因果独立）：
+    //   9751e73 起 keyCount 改为「各行 cols 之和」推算，而 buttonsOf 也按 cols 展开
+    //   ⇒ 两侧同源，注入 cols:5→3 时双双跟变、恒绿 = 自产自证废件（实测已验证恒绿）。
+    //   故此处改为与**独立字面量锚**比对：期望值写死，不由 cols 推出。
+    const STATIC_CAP = { 'ON(19键)': 19, 'OFF(14键)': 14 };   // 独立锚，改列数须同步改此处
+    ck(`R-03② ${tag} 按钮矩形数 = 独立锚定值 ${STATIC_CAP[tag]}`, keyBtns.length === STATIC_CAP[tag],
+       `矩形 ${keyBtns.length} vs 锚 ${STATIC_CAP[tag]}`);
+    ck(`R-03② ${tag} 且 keyCount 推算值须与独立锚一致（防推算式漂移）`, L.keyCount === STATIC_CAP[tag],
+       `keyCount ${L.keyCount} vs 锚 ${STATIC_CAP[tag]}`);
 
     // tap 区 ≥ 44×44
     const small = btns.filter(b => b.w < 44 || b.h < 44);
@@ -215,14 +231,48 @@ if (!AA || typeof AA.layoutFor !== 'function') {
        `ON.h=${ON.area.h} OFF.h=${OFF.area.h}`);
   }
 
-  // ④ 1/x 键居中占 3 列中间列
+  // ④ 1/x 键槽位与可点尺寸
+  // 🔴 task-121 改写（2026-08-09，丙类：断言过时，非实现缺陷）
+  //   旧断言为「1/x 键水平居中（键中心 == advRow 中心）」。该性质**仅在 3 列时成立**
+  //   —— 槽序固定 fact(0) → recip(1) → mod(2) → pow(3) → log(4)，3 列时槽 1 恰为中间列，
+  //   居中只是巧合，居中从来不是 INPUT-06/07/08 的需求。
+  //   INPUT-08 扩为 5 列后 1/x 仍在槽 1：中心 25+72.2*1.5=133.3，行中心 205.5 ⇒ 必然不居中。
+  //   ⚠️ 该红灯此前被 `_esm/AnswerArea.mjs` 陈旧副本（cols 仍 3）掩盖，属双错互消假绿。
+  //   ⇒ 改为断言【槽位序号恒定】+【可点尺寸达标】，不再断言居中。
+  //   🔴 二次修正：首版改写只重算同一公式（期望值由被测公式自己推出）⇒ 注入
+  //      「recip 槽 1→槽 3」后仍全绿 = 恒真废件（违条款 10）。已改为**读真实渲染矩形**。
   {
     const cw = ON.advRow.w / ON.advRow.cols;
-    const advX = ON.advRow.x + cw;
-    const rowCenter = ON.advRow.x + ON.advRow.w / 2;
-    const btnCenter = advX + cw / 2;
-    ck('R-03④ 1/x 键水平居中（键中心 == advRow 中心）', Math.abs(btnCenter - rowCenter) < 0.001,
-       `btnCenter=${btnCenter.toFixed(2)} rowCenter=${rowCenter.toFixed(2)}`);
+    // 从产品真实 render 产出的 _buttonRects 取 recip 键实际 x（非自行推算）
+    const _ctx = new Proxy({}, { get: (t, k) => {
+      if (k === 'canvas') return { width: 414, height: 896 };
+      if (k === 'measureText') return () => ({ width: 10 });
+      return typeof k === 'string' ? () => {} : undefined;
+    }, set: () => true });
+    const _a = new (AA.default)();
+    _a.advancedCalc = true; _a.enabled = true; _a.cardValues = [1, 2, 3, 4];
+    if (typeof _a.setCaps === 'function') _a.setCaps({ recip: true, fact: true, mod: true, pow: true, log: true });
+    _a.areaState = AA.AREA_STATE.OPEN;
+    _a.render(_ctx, 414, 896);
+    const rects = _a._buttonRects || [];
+    const rc = rects.find(b => b.advKey === 'recip');
+    ck('R-03④ 存在性前置：真实渲染中存在 1/x 键（否则下方槽位断言平凡真）', !!rc,
+       `advKeys=[${rects.filter(b => b.kind === 'adv').map(b => b.advKey).join(',')}]`);
+    if (rc) {
+      // 🔴 render 内含 scale/偏移（实测 scale≈1.009，非 1）⇒ 不能拿渲染 px 直接比 DP。
+      //    改用**同行内的比例关系**（scale 与偏移对同行所有键相同，故可约掉）：
+      //    以 fact(槽 0) 为原点，recip 与 fact 的间距应恰为 1 个键宽。
+      const fc = rects.find(b => b.advKey === 'fact');
+      const mc = rects.find(b => b.advKey === 'mod');
+      ck('R-03④ 存在性前置：fact/mod 键亦存在（供比例基准）', !!fc && !!mc, null);
+      if (fc && mc) {
+        const unit = mc.x - fc.x;                    // 槽 0→槽 2 = 2 个键宽（渲染尺度）
+        const gap = rc.x - fc.x;                     // 槽 0→recip
+        ck('R-03④ 1/x 键实际渲染于 advRow 槽 1（键序 fact,recip,mod,pow,log 恒定）',
+           Math.abs(gap - unit / 2) < 0.5,
+           `fact→recip=${gap.toFixed(2)} 应为 fact→mod 的一半=${(unit / 2).toFixed(2)}`);
+      }
+    }
     ck(`R-03④ 1/x 键宽 ${cw.toFixed(1)} ≥ 44 且高 ${ON.advRow.h} ≥ 44`, cw >= 44 && ON.advRow.h >= 44);
   }
 
@@ -255,4 +305,8 @@ ck('R-06 空高级解文案「本局无倒数解法」存在', /本局无倒数�
 ck('R-06 「…等共 N 条」模板存在', /等共\s*\$\{/.test(pgr));
 
 hdr(`[R-07 / R-03 / R-01 / R-06] pass=${pass} fail=${fail}  ${fail === 0 ? 'ALL PASS ✅' : 'HAS FAIL ❌'}`);
-process.exitCode = 0;
+// 🔴 task-121 修正（开发 task-120 ⑤ 提出，实测坐实）：
+//   原为 `process.exitCode = 0;` **无条件硬编码**，实测注入 advRow cols:5→3 得
+//   `pass=59 fail=2` 而 **REAL_STATUS 仍为 0** ⇒ CI 只看退出码会**吞掉本支全部 FAIL**。
+//   改为按失败数返回真码（条款 8：退出码须反映断言结果）。
+process.exit(fail ? 1 : 0);
