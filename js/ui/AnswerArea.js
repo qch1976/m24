@@ -106,7 +106,16 @@ export function layoutFor(advancedCalc) {
       opRow: ADV_ANCHOR.opRow,
       advRow: ADV_ANCHOR.advRow,
       ctrlRow: ADV_ANCHOR.ctrlRow,
-      keyCount: 15,
+      // 🔴 task-121（测试裁定）keyCount 语义 = 【可点击键位总数，不含 backBtn】。
+      //   交叉复核结论：该值是【静态几何容量】（= 各行 cols 之和），**不随 caps 变**。
+      //   依据：tester-input06-r07r03 R-03①② 直读 layoutFor()，**不传 caps、不调 render**，
+      //   其 buttonsOf() 按 cols 展开 ⇒ 量的是「这个布局能摆几个键」。
+      //   运行时实际渲染数另为一回事（随 caps 在 14..19 变动；出厂默认 pow/log 关 ⇒ 17），
+      //   那属 `_buttonRects` 的职责，不归 keyCount。
+      // ⚠️ 原为硬编码 15，已连续两轮陷旧：INPUT-07 加 `!`/`%`（+2）未同步，
+      //   INPUT-08 加 `a^b`/`log`（+2）亦未同步。现改为【由锚点推算】以绝后患。
+      keyCount: ADV_ANCHOR.numRow.cols + ADV_ANCHOR.opRow.cols
+              + ADV_ANCHOR.advRow.cols + ADV_ANCHOR.ctrlRow.cols,   // = 4+6+5+4 = 19
     };
   }
   const d = -ADV_ROW_H_TOTAL;
@@ -118,7 +127,8 @@ export function layoutFor(advancedCalc) {
     opRow: _shift(ADV_ANCHOR.opRow, ADV_ROW_H_TOTAL),
     advRow: null,
     ctrlRow: ADV_ANCHOR.ctrlRow, // 底行不动，仍贴 870
-    keyCount: 14,
+    // 关态无 advRow ⇒ 同口径推算：4+6+4 = 14（与原硬编码值一致，本轮不变）
+    keyCount: ADV_ANCHOR.numRow.cols + ADV_ANCHOR.opRow.cols + ADV_ANCHOR.ctrlRow.cols,   // = 14
   };
 }
 
