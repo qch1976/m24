@@ -116,3 +116,8 @@ for (const [cards, want] of CASES) {
   console.log(`  ${ok ? 'ok ' : 'XX '} ${JSON.stringify(cards).padEnd(15)} 独立=${String(r.advanced.size).padStart(3)}  基准=${String(want).padStart(3)}  primary=${r.primary.size} cancelled=${r.cancelledTotal}`);
 }
 console.log(`\n其余 8 组与基准${allOk ? '完全一致 ✅（说明算法口径对齐，[1,5,5,5] 非系统性偏差）' : '存在偏差 ❌'}`);
+// 🔴 task-122 修正（行为型审计器抓到，非静态 grep）：
+//   本支有 allOk 判定却**完全无退出码语句** ⇒ Node 默认 rc=0。
+//   实测注入 allOk=false：输出确实变为「存在偏差 ❌」而 **rc 仍为 0** ⇒ CI 只看退出码会静默吞红。
+//   条款 8：退出码须反映断言结果。
+process.exit(allOk ? 0 : 1);
