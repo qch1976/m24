@@ -70,11 +70,14 @@ console.log(`枚举域：${decks.length} 组（0..13 非降序四元组）\n`);
 const sufCount = new Map();
 let advTotal = 0, advNoSuffix = [], badFormat = [], zeroSuffix = [];
 const crossR = [], crossF = [], crossM = [], crossP = [], crossL = [];   // task-123: +P(幂) +L(对数)
+let pPow = 0, pRoot = 0;   // task-123: P 位两个子类各自计数，防单支恒绿
 let onPrimaryTotal = 0, onPrimaryPiped = [];
 
 for (const cards of decks) {
   let r;
-  try { r = solve(cards, { advancedCalc: true }); } catch (e) { continue; }
+  // 🔴 task-123 实测根因：裸调 { advancedCalc:true } 时 P/L 位恒 0（P=1→0、L=1→0，21285 键）；
+  //   传 caps 后 P=1→844、L=1→421。若不传 caps 而补 C-A5.P/L 断言，即为恒绿废件。
+  try { r = solve(cards, { advancedCalc: true, caps: { pow: true, log: true, fact: true, mod: true, recip: true } }); } catch (e) { continue; }
 
   // 开启态 primary 侧不得染后缀
   for (const k of keysOf(r && r.primary)) {
@@ -118,7 +121,10 @@ for (const cards of decks) {
     if ((m[2] === '1') !== disp.includes('!')   && crossF.length < 8) crossF.push({ cards: cards.join(','), k, disp });
     if ((m[3] === '1') !== disp.includes('%')   && crossM.length < 8) crossM.push({ cards: cards.join(','), k, disp });
     // 🔴 新增两位须各有交叉判据，否则扩位等于恒真白加
-    if ((m[4] === '1') !== /\^/.test(disp)  && crossP.length < 8) crossP.push({ cards: cards.join(','), k, disp });
+    // 🔴 task-123 定性：P 位涵盖【幂 ^ 与开方 √】两类（实测 849 条 P=1 键中 含^ 634 / 含√ 210 / 其它 0）。
+    //   原判据只认 /\^/ ⇒ 漏判 √ 类 ⇒ 误报 8 例。此为判据不完备，非产品缺陷。
+    if ((m[4] === '1') !== /[\^√]/.test(disp) && crossP.length < 8) crossP.push({ cards: cards.join(','), k, disp });
+    if (m[4] === '1') { if (/\^/.test(disp)) pPow++; else if (/√/.test(disp)) pRoot++; }
     if ((m[5] === '1') !== /log/.test(disp) && crossL.length < 8) crossL.push({ cards: cards.join(','), k, disp });
   }
 }
@@ -174,6 +180,18 @@ check('C-A5.F  F 位=1 ⟺ 展示含 "!"',  crossF.length === 0,
 check('C-A5.M  M 位=1 ⟺ 展示含 "%"',  crossM.length === 0,
       crossM.length ? `${crossM.length} 例，首例 ${JSON.stringify(crossM[0])}` : '0 违例');
 
+// 🔴 task-123 补：P/L 两位此前只有 crossP/crossL 收集器而无 check ⇒ 收集不判＝白收集。
+//   零违例判据必须配存在性前置，否则采样域无 P/L 键时恒绿。
+const sufP1 = [...sufCount.keys()].filter(x => /P1L[01]$/.test(x)).reduce((n, x) => n + sufCount.get(x), 0);
+const sufL1 = [...sufCount.keys()].filter(x => /P[01]L1$/.test(x)).reduce((n, x) => n + sufCount.get(x), 0);
+check('C-A5.P0 P=1 键真实存在（防空判据）', sufP1 > 0, `P=1 键 ${sufP1} 条`);
+check('C-A5.L0 L=1 键真实存在（防空判据）', sufL1 > 0, `L=1 键 ${sufL1} 条`);
+check('C-A5.P1 P 位两子类均真实存在（幂 ^ 与开方 √，防单支恒绿）', pPow > 0 && pRoot > 0, `含^ ${pPow} 条 / 含√ ${pRoot} 条`);
+check('C-A5.P  P 位=1 ⟺ 展示含 "^" 或 "√"（幂/开方，实测两类各占 634/210）', crossP.length === 0,
+      crossP.length ? `${crossP.length} 例，首例 ${JSON.stringify(crossP[0])}` : `0 违例 / P=1 ${sufP1} 条（^${pPow} √${pRoot}）`);
+check('C-A5.L  L 位=1 ⟺ 展示含 "log"（对数）', crossL.length === 0,
+      crossL.length ? `${crossL.length} 例，首例 ${JSON.stringify(crossL[0])}` : `0 违例 / L=1 ${sufL1} 条`);
+
 if (crossR.length) {
   console.log('\n  🔴 C-A5.R 违例明细（R 位漏判：键含倒数结构而 R=0）：');
   for (const x of crossR) console.log(`     [${x.cards}]  ${x.k}\n        展示 ${x.disp}`);
@@ -189,7 +207,7 @@ console.log('\n--- C-A6 INPUT-06 基线不变式 ---');
 }
 
 // ════════ 条款 8：断言总数自断言 ════════
-const EXPECTED_ASSERTION_COUNT = 18;
+const EXPECTED_ASSERTION_COUNT = 23;   // task-123: 18 + C-A5.P0/L0 存在性 + C-A5.P1 子类存在性 + C-A5.P/L 交叉 = 23
 console.log('\n--- 条款 8：断言总数自断言 ---');
 if (PASS + FAIL !== EXPECTED_ASSERTION_COUNT) {
   console.log(`  ✗ 断言总数 = ${PASS + FAIL}，期望 ${EXPECTED_ASSERTION_COUNT}（有断言静默退场或新增未同步）`);
