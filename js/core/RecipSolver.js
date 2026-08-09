@@ -746,12 +746,18 @@ export function advVariants(cards, caps) {
   const allowFact = !caps || caps.fact !== false;
   const allowMod = !caps || caps.mod !== false;
   // 🔴 INPUT-08 §3.4：新增 capPow / capLog 两个子开关。
-  //   ⭐ 兼容口径（开发自定，已上报）：与 recip/fact/mod 的「!== false 即开」**不同**，
-  //   pow/log 采用「=== true 才开」。缘由：若沿用 !== false，则
+  //   ⭐ 兼容口径（🔴 **项目经理 2026-08-09 已批准，已归项目口径，已同步往 INPUT-08 §10**）：
+  //   与 recip/fact/mod 的「!== false 即开」**有意不对称**，pow/log 采「=== true 才开」。
+  //   🔴🔴 后人勿将此处「修」成 !== false 以求与上三项一致 —— 那不是不一致，是刻意的。
+  //   缘由：若沿用 !== false，则
   //     ① 旧调用 advVariants(cards)（无 caps）会突然多出幂/对数解；
   //     ② 既有基准脚本传 {recip:false,fact:false,mod:false}（不知 pow/log）
-  //        会在「全关」态下凭空多出解 ⇒ 直接破验收 4「全关零误伤」。
+  //        会在「全关」态下凭空多出解 ⇒ 直接破验收 4「全关零误伤」与 R-01。
   //   故默认关，使所有存量调用方行为逐字节不变（可由 Z-1 digest 相等证明）。
+  //   🔴 不仅靠本注释拦：改成 !== false 会使
+  //     selftest_input08_engine.mjs 的 H-1（不传 caps ⇒ P/L 位恒 0）与
+  //     B-2（关闭态无含 | 的键）**两条当场判红**（已注入变异实测：618 键 / 13 键）。
+  //   ⚠️ GUI 层同守此条：capPow/capLog **未设字段 = 关**。
   const allowPow = !!(caps && caps.pow === true);
   const allowLog = !!(caps && caps.log === true);
 
