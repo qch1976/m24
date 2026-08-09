@@ -157,7 +157,13 @@ const hasText = pr.includes('计算中') || aa.includes('计算中');
 console.log(`  · [信息项·非断言] 「计算中…」文案：${hasText ? '存在' : '不存在'}（项目主裁定不做，不计 fail）`);
 
 // ⑦ 15/14 键布局随开关切换（layoutFor 统一入口）
-ck('R-05.1⑦ layoutFor(advancedCalc) 统一布局入口存在', /export function layoutFor\(advancedCalc\)/.test(aa));
+// 🔴 task-123（开发实证后修正）原断言正则为 `/export function layoutFor\(advancedCalc\)/`，
+//   把**参数列表文本**一并锁死 ⇒ 将来若为 caps 联动加可选第二参 `(advancedCalc, caps)`，
+//   本条会判红，而它想验的只是「存在统一布局入口」这一结构事实，与参数个数无关。
+//   开发 task-123 §一 因此被本条阻塞（注入 caps ⇒ 26/1），属**测试侧过紧**，非产品缺陷。
+//   收口：只锚函数名与首参名，允许其后追加参数；仍禁止改名或去掉 advancedCalc 首参。
+ck('R-05.1⑦ layoutFor(advancedCalc[, ...]) 统一布局入口存在（允许追加可选参）',
+   /export\s+function\s+layoutFor\s*\(\s*advancedCalc\s*[,)]/.test(aa));
 ck('R-05.1⑦ setAdvancedCalc 幂等短路（next === this.advancedCalc 直接 return）',
    /if \(next === this\.advancedCalc\) return;/.test(aa));
 
