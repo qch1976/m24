@@ -117,6 +117,14 @@ check('CLOSE 水平居中于面板', Math.abs(panelCX - closeCX) <= 1, `panelCX=
 check('CLOSE 热区 >= 44x44', CLOSE.w >= 44 && CLOSE.h >= 44);
 check('LIST 与 CLOSE 不重叠', LIST.y + LIST.h <= CLOSE.y, `LIST bottom=${LIST.y+LIST.h}, CLOSE top=${CLOSE.y}`);
 
+// ── task-116：接收旧 bug4 支废弃前的唯一覆盖点 ──
+// 依据：210/211 号报告 + 项目主 08-07 16:31 批准【甲】方案
+// 旧支 tester-bug4-answermodal-geometry.mjs 的 H3.2 / H3.4 是 CLOSE.y / CLOSE.h 的唯一精确值守护。
+// 本支原有 4 条 CLOSE 断言均为范围/下界/居中约束，实测变异 h 50→44、y 691→700 全部漏放，
+// 故在删除旧支前把这 2 条精确值断言迁入本支，确保覆盖面零损失。
+check('T-L02c CLOSE.y = 691（承接旧支 H3.2 唯一覆盖点）', CLOSE.y === 691, String(CLOSE.y));
+check('T-L02c CLOSE.h = 50（承接旧支 H3.4 唯一覆盖点）', CLOSE.h === 50, String(CLOSE.h));
+
 // 前后对比
 console.log('\n=== 前后对比表（fec9851 v1 → fc3f1cc v2） ===');
 const before = { panel: {x:35,y:140,w:341,h:611}, list:{x:45,y:240,w:321,h:440}, font:16 };
@@ -125,6 +133,18 @@ console.log(`  PANEL.w    ${before.panel.w} → ${PANEL.w} (${PANEL.w-before.pan
 console.log(`  LIST.w     ${before.list.w}  → ${LIST.w}  (${LIST.w-before.list.w})`);
 console.log(`  内容宽     ${before.list.w-32} → ${contentW} (${contentW-(before.list.w-32)})`);
 console.log(`  字号       ${before.font} → ${ITEM_FONT_SIZE} (+${ITEM_FONT_SIZE-before.font})`);
+
+// ── 条款 8：断言总数自断言（防断言静默退场）──
+// task-116 补 2 条（CLOSE.y / CLOSE.h）后由 27 → 29。
+// 若某条断言因分支未进入而静默不执行，此处即判红，不会被 fail=0 掩盖。
+const EXPECTED_ASSERTION_COUNT = 29;
+console.log('\n=== 条款 8：断言总数自断言 ===');
+if (PASS + FAIL !== EXPECTED_ASSERTION_COUNT) {
+  console.log(`  ✗ 断言总数 = ${PASS + FAIL}，期望 ${EXPECTED_ASSERTION_COUNT}（有断言静默退场或新增未同步）`);
+  FAIL++;
+} else {
+  console.log(`  ✓ 断言总数 = ${PASS + FAIL} 与期望 ${EXPECTED_ASSERTION_COUNT} 一致`);
+}
 
 console.log('\n=========================================');
 console.log(`Bug4-v2 TOTAL: pass=${PASS} fail=${FAIL}`);
