@@ -139,6 +139,153 @@ export function countRecip(t) {
 }
 
 // ============ 归约产生的恒等元节点（规范 §1 节点表）============
+
+// ============ INPUT-08：幂 / 对数 / 开方（§2.2 §2.2b §2.3 §2.4）============
+// 🔴 全整数运算，禁 Math.pow / Math.log / 浮点判等（§3.1 §5 风险 5）。
+// 🔴 开方不是独立运算符（§1.2）：作 pow 节点的显示别名，根指数存于专用字段 rootIdx，
+//    **不建 1/b 子树** —— 因 keySol 前两分支 {op:'/',a:one,b:num} 与 {op:'recip'}
+//    都 return 'r'+card ⇒ 若建子树，4^(1/2) 指数位键=r2 与倒数叶子 1/2 同键，
+//    R 位会被误标 1（别名擦除，task-109 L707 同病理，已明令 stop）。
+
+// §2.2 指数上限分档：底2→8 / 3-5→4 / 6-9→3 / ≥10→2
+export function powExpMax(a) {
+  if (a === 2) return 8;
+  if (a >= 3 && a <= 5) return 4;
+  if (a >= 6 && a <= 9) return 3;
+  return 2; // a >= 10
+}
+export const POW_EXP_MAX = powExpMax;
+
+// §2.2b D-1：a^1 = a —— 吃 2 张牌却等价 1 张，产生伪高级解 ⇒ 排除
+export function isPowDegenerate(a, b) {
+  return b === 1;
+}
+
+// §2.2 幂可枚举性：底 a∈{0,1} 无效；指数须 ≥2 且不超分档上限
+export function powEnumerable(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+  if (a <= 1) return false;              // 0^b≡0、1^b≡1，无计算意义
+  if (b < 0) return false;
+  if (isPowDegenerate(a, b)) return false; // D-1
+  if (b === 0) return false;             // a^0≡1 亦为退化常数
+  return b <= powExpMax(a);
+}
+
+// 整数幂（BigInt，禁浮点）
+export function ipow(base, exp) {
+  let r = 1n;
+  const b = BigInt(base);
+  for (let i = 0; i < exp; i++) r *= b;
+  return r;
+}
+
+// §2.3 对数：整数幂反查求精确值，禁 Math.log。
+//   返回 Fraction 或 null（无理）。log_a b = p/q  ⟺  a^p = b^q。
+//   做法：把 a、b 各自表示为「同一最小底 g 的整数幂」——
+//   若 a = g^s、b = g^t（g 为不可再开方的最小整数底），则 log_a b = t/s，精确有理。
+//   否则无理 ⇒ null。全程 BigInt，无浮点。
+function minimalRootBase(n) {
+  // 把 n 写成 g^e，e 取最大 ⇒ g 最小。n >= 2。
+  for (let e = 13; e >= 2; e--) {
+    for (let g = 2; g <= n; g++) {
+      const p = ipow(g, e);
+      if (p === BigInt(n)) return { g, e };
+      if (p > BigInt(n)) break;
+    }
+  }
+  return { g: n, e: 1 };
+}
+
+export function logExact(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
+  if (a <= 1 || b <= 0) return null;
+  if (b === 1) return F(0n);          // log_a 1 = 0（值精确；枚举期由 D-3 排除）
+  const ra = minimalRootBase(a);
+  const rb = minimalRootBase(b);
+  if (ra.g !== rb.g) return null;     // 不同最小底 ⇒ 无理（如 log_2 3）
+  return F(BigInt(rb.e), BigInt(ra.e)); // t/s，F() 内部已约分
+}
+
+// §2.2b D-2 log_a(a)=1 / D-3 log_a(1)=0 排除；§2.3 底 2..13、真数 1..13
+export function logEnumerable(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+  if (a < 2 || a > 13) return false;
+  if (b < 1 || b > 13) return false;
+  if (a === b) return false;          // D-2 恒真
+  if (b === 1) return false;          // D-3 恒真
+  return logExact(a, b) !== null;     // 结果须精确
+}
+
+// §2.4 开方 a^(1/b) 须精确：整数幂反查，禁浮点。
+//   仅当存在整数/有理 r 使 r^b = a 时成立。
+export function rootExact(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return null;
+  if (a <= 1 || b < 2) return null;
+  for (let r = 2; r <= a; r++) {
+    const p = ipow(r, b);
+    if (p === BigInt(a)) return F(BigInt(r));
+    if (p > BigInt(a)) break;
+  }
+  return null;
+}
+
+export function rootEnumerable(a, b) {
+  if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+  if (a <= 1) return false;           // 底 0/1 无效
+  if (b < 2) return false;            // b=1 ⇒ a^(1/1)=a 退化
+  if (b > 13) return false;
+  return rootExact(a, b) !== null;
+}
+
+// ── pow 节点构造 ──
+// 🔴 rootIdx 语义：undefined/null ⇒ 普通幂 a^b；数值 ⇒ 开方 a^(1/rootIdx)
+//   两者共用 P 位（§1.2 键空间不新增开方位）。
+export function powLeaf(aCard, aSlot, bCard, bSlot) {
+  return {
+    op: 'pow',
+    a: numLeaf(aCard, aSlot),
+    b: numLeaf(bCard, bSlot),
+    v: F(ipow(aCard, bCard)),
+  };
+}
+
+export function rootLeaf(aCard, aSlot, bCard, bSlot) {
+  const r = rootExact(aCard, bCard);
+  return {
+    op: 'pow',
+    a: numLeaf(aCard, aSlot),
+    b: numLeaf(bCard, bSlot),
+    rootIdx: bCard,          // ★ 专用字段承载根指数，不建 1/b 子树
+    v: r,
+  };
+}
+
+export function logLeaf(aCard, aSlot, bCard, bSlot) {
+  return {
+    op: 'log',
+    a: numLeaf(aCard, aSlot),
+    b: numLeaf(bCard, bSlot),
+    v: logExact(aCard, bCard),
+  };
+}
+
+// countPow / countLog：与 countFact/countMod 同构，用于【归约后】判定 P/L 两位。
+// 🔴 §1.2：P 位走节点存在性，不从渲染文本反推（避开 L707 层级倒置与同形文本假阳）。
+export function countPow(t) {
+  if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
+  if (t.op === 'recip' || t.op === 'fact' || t.op === 'mod') return 0;
+  if (t.op === 'pow') return 1;   // 含开方别名（rootIdx 形态）
+  if (t.op === 'log') return 0;
+  return countPow(t.a) + countPow(t.b);
+}
+
+export function countLog(t) {
+  if (!t || t.op === 'num' || t.op === 'one' || t.op === 'zero') return 0;
+  if (t.op === 'recip' || t.op === 'fact' || t.op === 'mod') return 0;
+  if (t.op === 'pow') return 0;
+  if (t.op === 'log') return 1;
+  return countLog(t.a) + countLog(t.b);
+}
 // ★ 必须用独立 op：早期实现用 {op:'num',card:1} 作空分子占位，与牌面的 1 键值相同，
 //   导致 (5-((1/5)/1))*5 与 (5-(1/5))*5 被判 2 条解。规范 L43 已记录该缺陷。
 export const ONE_NODE = { op: 'one' };
@@ -172,6 +319,13 @@ export function render(t) {
   if (t.op === 'recip') return `(1/${t.arg.card})`;
   if (t.op === 'fact') return `${t.arg.card}!`;
   if (t.op === 'mod') return `(${render(t.a)}%${render(t.b)})`;
+  // INPUT-08：幂 / 对数 / 开方（开方为幂的显示别名，§1.2）
+  if (t.op === 'pow') {
+    return (t.rootIdx !== undefined && t.rootIdx !== null)
+      ? `(${t.a.card}^(1/${t.rootIdx}))`
+      : `(${render(t.a)}^${render(t.b)})`;
+  }
+  if (t.op === 'log') return `(log_${render(t.a)} ${render(t.b)})`;
   return `(${render(t.a)}${t.op}${render(t.b)})`;
 }
 
@@ -184,6 +338,13 @@ export function renderDisplay(t) {
   if (t.op === 'recip') return `(1/${t.arg.card})`;
   if (t.op === 'fact') return `${t.arg.card}!`;
   if (t.op === 'mod') return `(${renderDisplay(t.a)}%${renderDisplay(t.b)})`;
+  // INPUT-08 §1.2：开方在展示层渲染为根号（仅显示层，语义层仍是 pow 节点）
+  if (t.op === 'pow') {
+    return (t.rootIdx !== undefined && t.rootIdx !== null)
+      ? (t.rootIdx === 2 ? `√${t.a.card}` : `${t.rootIdx}√${t.a.card}`)
+      : `(${renderDisplay(t.a)}^${renderDisplay(t.b)})`;
+  }
+  if (t.op === 'log') return `(log_${renderDisplay(t.a)} ${renderDisplay(t.b)})`;
   const op = t.op === '*' ? '×' : t.op === '/' ? '÷' : t.op;
   return `(${renderDisplay(t.a)}${op}${renderDisplay(t.b)})`;
 }
@@ -208,6 +369,8 @@ export function advPostOrderSteps(t) {
   //         （(5%8)+9=14：先算 % 再算 +），4 张牌的解只剩 2 步，与初级解 3 步口径不一。
   //   ⇒ mod 参与后序遍历、单独成步。其两侧在设计上恒为原始叶子（见上方
   //     「mod 两侧限原始叶子」注释），故成步后 lhs/rhs 不会再嵌套子算式。
+  // 🔴 INPUT-08 §3.5：pow / log 同样是二元（吃 2 张牌）⇒ 绝不可入 isAtom，
+  //   否则重蹈 GUI-4 覆辍（4 张牌的解只剩 2 步）。此处不列 pow/log 即使其参与遍历。
   const isAtom = (x) => !x || x.op === 'num' || x.op === 'one' || x.op === 'zero'
     || x.op === 'recip' || x.op === 'fact';
   const fmt = (fr) => {
@@ -221,12 +384,16 @@ export function advPostOrderSteps(t) {
     traverse(node.b);
     // 🔴 task-113：mod 现在会单独成步，必须把内部 op 名 'mod' 映成展示符 '%'，
     //   否则屏上会出现「5 mod 8」（泄露内部枚举名），与 advancedTop 里的 (5%8) 不一致。
-    const op = node.op === '*' ? '×' : node.op === '/' ? '÷' : node.op === 'mod' ? '%' : node.op;
+    const op = node.op === '*' ? '×' : node.op === '/' ? '÷' : node.op === 'mod' ? '%'
+      : node.op === 'pow' ? '^' : node.op === 'log' ? 'log' : node.op;
+    // 🔴 §3.5：op 名须映射屏显符号，不得泄露枚举名（'pow'/'log'）。
+    // 开方形态：rhs 显示 (1/b)，使「底 ^ (1/b)」可读；语义层仍是 rootIdx 字段。
+    const isRoot = node.op === 'pow' && node.rootIdx !== undefined && node.rootIdx !== null;
     steps.push({
       step: steps.length + 1,
       lhs: renderDisplay(node.a),
       op,
-      rhs: renderDisplay(node.b),
+      rhs: isRoot ? `(1/${node.rootIdx})` : renderDisplay(node.b),
       result: fmt(evalNode(node)),
     });
   };
@@ -255,6 +422,19 @@ export function evalNode(t) {
     if (ma.d !== 1n || mb.d !== 1n) return null;   // §1.3.2 非负整数判据
     if (ma.n < 0n || mb.n <= 0n) return null;      // b=0 非法
     return F(ma.n % mb.n);
+  }
+  // ============ INPUT-08：幂 / 对数（限叶子 ⇒ 两侧必为 num）============
+  // 🔴 rootIdx 存在 ⇒ 开方语义 a^(1/rootIdx)，不建 1/b 子树（§1.2）
+  if (t.op === 'pow') {
+    if (!t.a || t.a.op !== 'num' || !t.b || t.b.op !== 'num') return null;
+    if (t.rootIdx !== undefined && t.rootIdx !== null) return rootExact(t.a.card, t.rootIdx);
+    if (!powEnumerable(t.a.card, t.b.card)) return null;
+    return F(ipow(t.a.card, t.b.card));
+  }
+  if (t.op === 'log') {
+    if (!t.a || t.a.op !== 'num' || !t.b || t.b.op !== 'num') return null;
+    if (!logEnumerable(t.a.card, t.b.card)) return null;
+    return logExact(t.a.card, t.b.card);
   }
   const a = evalNode(t.a);
   const b = evalNode(t.b);
@@ -467,6 +647,17 @@ export function keySol(t) {
   // 🔴 a%b ≠ b%a：7%3=1 vs 3%7=3、12%5=2 vs 5%12=5、8%6=2 vs 6%8=6。
   //    必须写在 +/* 交换归一分支【之前】，且绝不参与任何排序。
   if (t.op === 'mod') return `(% ${ka} ${kb})`;
+  // ============ INPUT-08：^ 与 log 必须保序（§1.1 二元、不可交换）============
+  // 🔴 2^3=8 ≠ 3^2=9、log_2 4=2 ≠ log_4 2=1/2
+  //    必须写在 +/* 交换归一分支【之前】，且组不参与任何排序（同 mod）。
+  // 🔴 开方（rootIdx）与普通幂共用 P 位，但键必须可区分：
+  //    4^2=16 与 4^(1/2)=2 值不同，若同键会错误归并。故开方用 √ 前缀。
+  if (t.op === 'pow') {
+    return (t.rootIdx !== undefined && t.rootIdx !== null)
+      ? `(√ ${ka} ${t.rootIdx})`
+      : `(^ ${ka} ${kb})`;
+  }
+  if (t.op === 'log') return `(log ${ka} ${kb})`;
   if (t.op === '+' || t.op === '*') {
     const x = ka <= kb ? ka : kb;
     const y = ka <= kb ? kb : ka;
@@ -554,6 +745,15 @@ export function advVariants(cards, caps) {
   const allowRecip = !caps || caps.recip !== false;
   const allowFact = !caps || caps.fact !== false;
   const allowMod = !caps || caps.mod !== false;
+  // 🔴 INPUT-08 §3.4：新增 capPow / capLog 两个子开关。
+  //   ⭐ 兼容口径（开发自定，已上报）：与 recip/fact/mod 的「!== false 即开」**不同**，
+  //   pow/log 采用「=== true 才开」。缘由：若沿用 !== false，则
+  //     ① 旧调用 advVariants(cards)（无 caps）会突然多出幂/对数解；
+  //     ② 既有基准脚本传 {recip:false,fact:false,mod:false}（不知 pow/log）
+  //        会在「全关」态下凭空多出解 ⇒ 直接破验收 4「全关零误伤」。
+  //   故默认关，使所有存量调用方行为逐字节不变（可由 Z-1 digest 相等证明）。
+  const allowPow = !!(caps && caps.pow === true);
+  const allowLog = !!(caps && caps.log === true);
 
   // 单牌形态候选
   const soloForms = (c, i) => {
@@ -592,6 +792,42 @@ export function advVariants(cards, caps) {
       }
     };
     rec(0, []);
+  }
+
+  // ============ 🔴 INPUT-08：幂 / 对数 / 开方形态（§1.1 二元，吃 2 张牌）============
+  // 与 mod 同构：二元 ⇒ 占两个 slot，不可交换 ⇒ 有序对 (i,j)/(j,i) 均需枚举。
+  // 🔴 §1.3：两侧均须为原始牌面叶子 ⇒ 只用 numLeaf，绝不嵌套中间结果。
+  // 🔴 §1.4：不与其他修饰叠加 ⇒ 剩余牌仍走 soloForms（其内部已排除对己叠加）。
+  if (allowPow || allowLog) {
+    const advPairForms = [];
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        if (i === j) continue;
+        const ci = cards[i];
+        const cj = cards[j];
+        if (allowPow) {
+          if (powEnumerable(ci, cj)) advPairForms.push([[i, j], powLeaf(ci, i, cj, j)]);
+          // 开方 a^(1/b)：仍是 pow 节点（rootIdx 字段），共用 P 位，不建 1/b 子树
+          if (rootEnumerable(ci, cj)) advPairForms.push([[i, j], rootLeaf(ci, i, cj, j)]);
+        }
+        if (allowLog && logEnumerable(ci, cj)) advPairForms.push([[i, j], logLeaf(ci, i, cj, j)]);
+      }
+    }
+    for (const [slots, leaf] of advPairForms) {
+      const used = new Set(slots);
+      const free = [];
+      for (let i = 0; i < n; i++) if (!used.has(i)) free.push(i);
+      const rec2 = (k, acc) => {
+        if (k === free.length) { out.push([leaf].concat(acc)); return; }
+        const i = free[k];
+        for (const f of soloForms(cards[i], i)) {
+          acc.push(f);
+          rec2(k + 1, acc);
+          acc.pop();
+        }
+      };
+      rec2(0, []);
+    }
   }
 
   // ============ ★ 双 % 形态（201 号附录 A1，形态数 72）============
@@ -765,6 +1001,12 @@ export function solve(cards, opts) {
       const usedRecip = countRecip(node) > 0 && /(^|[^a-z])r\d+/.test(keySol(rr.node));
       const usedFact = countFact(node) > 0;        // ← 改为原式（B6：0! 被乘一吸收）
       const usedMod = countMod(node) > 0;          // ← 改为原式（B1/B2：% 得 0 被零项吸收）
+      // 🔴 INPUT-08 §1.2：P 位走节点存在性 countPow>0，**不从渲染文本反推**。
+      //   缘由：开方用 rootIdx 专用字段而非 1/b 子树 ⇒ 不会被 keySol 前两分支
+      //   归一为 'r'+card（别名抹除，task-109 L707 同病理）；且 1/b 与初级 1÷b 同形，
+      //   文本判据必假阳。故此处与 usedFact/usedMod 同构，用原式节点计数。
+      const usedPow = countPow(node) > 0;
+      const usedLog = countLog(node) > 0;
       const hadRecip = countRecip(node) > 0;
       // ★★ 裁定①：三分区统一用**归约式键**。
       //   旧实现 advanced/primary 用 keySol(node)（原式键）、cancelled 用 keySol(rr.node)（归约式键），
@@ -785,10 +1027,14 @@ export function solve(cards, opts) {
       //   守护：C-A1（关闭态无含 | 的键）+ C-A2（全量无 |R0F0M0 字面量）+ C-A3（后缀定长正则）。
       // 🔴 A（task-100）：usedRecip 补入键后缀。此前仅编 F/M 两维 ⇒ usedRecip 丢维，
       //   违反 INPUT-06 §1.3 / R-04.3 / INPUT-07 §2.1；属回归修复，非新增维度。
-      const k = (usedRecip || usedFact || usedMod)
-        ? `${baseK}|R${usedRecip ? 1 : 0}F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}`
+      // 🔴 INPUT-08 §3.3：三位→五位 R→F→M→P→L。位序恒定，不得调整既有 R→F→M。
+      //   全 false 仍走无后缀短路（下方三元运算符的 else 分支）——禁恒拼 R0F0M0P0L0，
+      //   否则关闭态键集合整体偏移，静默破 R-01（C-2 硬约束，同上方警示）。
+      const anyAdv = usedRecip || usedFact || usedMod || usedPow || usedLog;
+      const k = anyAdv
+        ? `${baseK}|R${usedRecip ? 1 : 0}F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}P${usedPow ? 1 : 0}L${usedLog ? 1 : 0}`
         : baseK;
-      if (usedRecip || usedFact || usedMod) {
+      if (anyAdv) {
         if (!advanced.has(k)) {
           const disp = renderDisplay(node);
           advanced.set(k, disp);

@@ -80,7 +80,7 @@ const suffixHits = (caps) => {
   for (const deck of sub) {
     const r = RS.solve(deck, { advancedCalc: true, caps });
     for (const k of r.advanced.keys()) {
-      const m = k.match(/\|R([01])F([01])M([01])$/);
+      const m = k.match(/\|R([01])F([01])M([01])(?:P([01])L([01]))?$/);
       if (!m) continue;
       acc.total++;
       if (m[1] === '1') acc.R++;

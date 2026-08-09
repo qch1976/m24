@@ -59,7 +59,7 @@ for (const deck of allDeckList) {
   }
 
   for (const [k, disp] of on.advanced) {
-    const m = k.match(/\|R([01])F([01])M([01])$/);
+    const m = k.match(/\|R([01])F([01])M([01])(?:P([01])L([01]))?$/);
     if (m) suffixSizeSum.set(m[0], (suffixSizeSum.get(m[0]) || 0) + 1);
     const s = String(disp);
     const modHitCount = (s.match(/%/g) || []).length;
@@ -104,7 +104,14 @@ T('E5 无 |R0F0M0 后缀（C-2 全假走无后缀分支）',
   !suffixSizeSum.has('|R0F0M0'), [...suffixSizeSum.keys()]);
 T('E6🔴 R-01 初级分区展示不含高级记号 ! / % / (1/',
   primaryDisplayWithAdvancedSymbolHitCount === 0, primaryViolationSampleList);
-console.log(`  存在性前置：R1 类后缀 ${sumBy((s) => /R1/.test(s))} > 0、展示含 (1/ 的 ${displayRecipSizeSum} > 0 ⇒ E6 的「0」有信息量`);
+T('E7🔴 存在性前置：R1 类后缀 > 0 且展示含 (1/ > 0（否则 E5/E6 的「0」是空断言）',
+  sumBy((s) => /R1/.test(s)) > 0 && displayRecipSizeSum > 0,
+  { r1SuffixHitCount: sumBy((s) => /R1/.test(s)), displayRecipSizeSum });
+// 🔴 INPUT-08 §10：上行原为 console.log，已升为 T()。
+//   缘由（开发实测）：后缀三位→五位后，本文件 L62 定长锥定正则会静默失配
+//   （if (m) 不抛错）⇒ suffixSizeSum 全空 ⇒ E5 的 !has('|R0F0M0') 恒真、
+//   E6 的 ===0 也恒真 ⇒ 整支退化为假绿。升为 T() 后全零即判红。
+console.log(`  参考：R1 类后缀 ${sumBy((s) => /R1/.test(s))}、展示含 (1/ 的 ${displayRecipSizeSum}`);
 
 console.log('\n=== 人工抽样取证（规则 11：下结论前先看原文）===');
 const show = (label, list) => { console.log(`  ${label}`); for (const [d, k, s] of list) console.log(`     [${d}] ${s}     键=${k}`); };
@@ -126,7 +133,7 @@ console.log(`  onSolvableDeckGroupCount=${onSolvableDeckGroupCount}  offSolvable
 // 🔴🔴 条款 8（裁定 214 ③）：断言总数自断言 —— 断言静默退场则总数不符⇒判红。
 //   防：断言写在 if 内未执行、early-return、try-catch 吞掉、循环 0 次。
 //   验收方以 fail=0 通过时必须同时核对 pass 总数，fail=0 单独不足为凭。
-const EXPECTED_ASSERTION_COUNT = 10;
+const EXPECTED_ASSERTION_COUNT = 11;  // INPUT-08 §10：E7 存在性前置由 console.log 升为 T() ⇒ +1
 console.log(`\npass=${pass} fail=${fail}`);
 if (pass + fail !== EXPECTED_ASSERTION_COUNT) {
   console.log(`\n🔴 FAIL 条款8 断言总数不符：期望 ${EXPECTED_ASSERTION_COUNT}，实际 ${pass + fail}`);

@@ -47,14 +47,20 @@ const offWithPipe = allOff.filter((k) => k.includes('|'));
 T('C-A1🔴 关闭态键集合中不存在含 | 的键（守 R-01；恒拼 R0F0M0 会判红）',
   offWithPipe.length === 0, offWithPipe.slice(0, 3));
 
-// C-A2：|R0F0M0 是「三位恒拼」与「全假无后缀」冲突时才会出现的形态，必须不存在。
-const zeroSuffix = allOn.filter((k) => k.endsWith('|R0F0M0'));
-T('C-A2🔴 全量键中不存在 |R0F0M0 字面量（全假必须走无后缀分支）',
+// C-A2：|R0F0M0 是「恒拼」与「全假无后缀」冲突时才会出现的形态，必须不存在。
+// 🔴 INPUT-08 §3.3：扩位后全假形态变为 |R0F0M0P0L0，两代均须不存在。
+//   若只查三位字面，扩位后该断言会因「找不到三位串」而恒真 ⇒ 丧失鉴别力。
+const zeroSuffix = allOn.filter((k) => /\|R0F0M0(P0L0)?$/.test(k));
+T('C-A2🔴 全量键中不存在 |R0F0M0 / |R0F0M0P0L0 字面量（全假必须走无后缀分支）',
   zeroSuffix.length === 0, zeroSuffix.slice(0, 3));
 
 // C-A3：后缀存在时必为定长、位序 R→F→M。「只拼真位」会判红。
-const badSuffix = withSuffix.filter((k) => !/\|R[01]F[01]M[01]$/.test(k));
-T('C-A3 后缀存在时必匹配 /\\|R[01]F[01]M[01]$/（定长、位序 R-F-M）',
+// 🔴 INPUT-08 §3.3：后缀三位→五位 R→F→M→P→L，定长锥定正则同步扩位。
+//   兼容两代（旧三位键若残留也不误报）。
+// 🔴 本处与下方 A-A1 是 INPUT-08 §10 清单【未列】的第 4/5 处三位消费侧，
+//   由本脚本定长断言当场判红拓出 —— 这正是 C-A3 的设计目的（后缀格式变动需被发现）。
+const badSuffix = withSuffix.filter((k) => !/\|R[01]F[01]M[01](P[01]L[01])?$/.test(k));
+T('C-A3 后缀存在时必匹配 /\\|R[01]F[01]M[01](P[01]L[01])?$/（定长、位序 R-F-M-P-L）',
   badSuffix.length === 0, badSuffix.slice(0, 3));
 
 // C-A3b：源码就地防线注释须在（C-2 防线 1）
@@ -64,7 +70,7 @@ T('C-A3b 源码含 R0F0M0 陷阱的就地警示注释（205 §C-2 防线 1）',
 console.log('\n=== A：usedRecip 补维（205 §E-1 A-A1 / A-A2）===');
 // A-A1：usedRecip 单独为真（F=M=0）时，键必含 |R1F0M0。
 //   这正是原实现丢维之处：旧版此情形键【无后缀】，与纯初级解同键。
-const r1f0m0 = allOn.filter((k) => k.endsWith('|R1F0M0'));
+const r1f0m0 = allOn.filter((k) => /\|R1F0M0(P0L0)?$/.test(k));   // §3.3：五位后为 R1F0M0P0L0
 T('A-A1🔴 存在 |R1F0M0 键（usedRecip 单独为真时键须含 R 位；L719 改回 (usedFact||usedMod) 须判红）',
   r1f0m0.length > 0, r1f0m0.length);
 console.log(`  |R1F0M0 键数 = ${r1f0m0.length}（旧版这些键无后缀 ⇒ 与初级解同键 ⇒ 丢维）`);

@@ -65,7 +65,7 @@ for (const deck of allDeckList) {
   for (const k of off.primary.keys()) offPrimaryExactKeySet.add(deckTag + '#' + k);
 
   for (const k of on.advanced.keys()) {
-    const m = k.match(/\|R([01])F([01])M([01])$/);
+    const m = k.match(/\|R([01])F([01])M([01])(?:P([01])L([01]))?$/);
     if (!m) continue;
     const suffix = `|R${m[1]}F${m[2]}M${m[3]}`;
     suffixHistogramSizeSum.set(suffix, (suffixHistogramSizeSum.get(suffix) || 0) + 1);
@@ -156,6 +156,25 @@ console.log(`  p95ElapsedMs = ${p95ElapsedMs.toFixed(1)}ms  maxElapsedMs = ${max
 console.log(`\n【8】存在性前置（209 条款 3：以「零」为预期者须附）`);
 const offSuffixKeyHitCount = [...offPrimaryExactKeySet].filter((k) => k.includes('|')).length;
 console.log(`  offSuffixKeyHitCount = ${offSuffixKeyHitCount}〔命中次数〕（关闭态含 | 的键，预期 0）`);
-console.log(`  前置：开启态带后缀键 = ${[...suffixHistogramSizeSum.values()].reduce((a, b) => a + b, 0)} > 0 ⇒ 该「0」有信息量 ✅`);
+const onSuffixTotalHitCount = [...suffixHistogramSizeSum.values()].reduce((a, b) => a + b, 0);
+console.log(`  前置：开启态带后缀键 = ${onSuffixTotalHitCount} > 0 ⇒ 该「0」有信息量`);
 
 console.log(`\n总耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+
+// ============ 🔴 INPUT-08 §10：本脚本原本无 T( 、无 process.exit ============
+// 缘由（开发实测）：后缀三位→五位后，L68 定长锥定正则静默失配（if (!m) continue）
+//   ⇒ 直方图全归零。而本脚本只打印、不断言、不设退出码 ⇒ 全零也无从判红，
+//   “跑完了”会被误读为“没问题”。故补最小必要断言 + 退出码。
+// 🔴 只断言「尺子本身没失效」与「关闭态零后缀」两件，不碰原有基准数字口径。
+let gatePass = 0, gateFail = 0;
+const G = (name, cond, got) => {
+  if (cond) { gatePass++; console.log(`  PASS ${name}`); }
+  else { gateFail++; console.log(`  FAIL ${name} => got: ${JSON.stringify(got)}`); }
+};
+console.log(`\n【9】门禁断言（INPUT-08 §10 补）`);
+G('M-1🔴 尺子未失效：开启态带后缀键 > 0（为 0 则正则已失配，后续全部数字均不可信）',
+  onSuffixTotalHitCount > 0, onSuffixTotalHitCount);
+G('M-2🔴 关闭态无含 | 的键（守 R-01，禁恒拼全 0 后缀）',
+  offSuffixKeyHitCount === 0, offSuffixKeyHitCount);
+console.log(`\ngatePass=${gatePass} gateFail=${gateFail}`);
+process.exit(gateFail === 0 ? 0 : 1);
