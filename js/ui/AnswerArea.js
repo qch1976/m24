@@ -50,6 +50,18 @@ const OP_DISPLAY = { '+': '+', '-': '-', '*': '×', '/': '÷' };
 // 答题区在 411×891 DP 设计尺寸下的锚点（Architect §2.3）
 // INPUT-03 bugfix（Architect 72 号 v2 §4）：全部 y 坐标上移 10 DP，
 //   与卡牌底行新 y∈[304,474] 保持 16 DP 安全间距，且区底部 y+h = 870 ≤ 891。
+// 🔴 task-136：高级 token 类型单一清单（主开关/子开关清空与守卫共用，禁再逐个硬写）
+//   与 js/core/RecipParser 的 ADV_TOKENS 一一对应（recip/fact/mod/pow/log）。
+export const ADV_TOKEN_TYPES = [
+  TokenType.RECIP, TokenType.FACT, TokenType.MOD, TokenType.POW, TokenType.LOG,
+];
+
+// token.type → isAdvKeyEnabled 的 advKey（子开关守卫用）
+export const TOKEN_ADV_KEY = {
+  [TokenType.RECIP]: 'recip', [TokenType.FACT]: 'fact', [TokenType.MOD]: 'mod',
+  [TokenType.POW]: 'pow', [TokenType.LOG]: 'log',
+};
+
 export const ANSWER_ANCHOR = {
   // 答题区顶边下移 30 DP，底边不变：y+30, h-30  
   area:      { x: 15,  y: 520, w: 381, h: 350 },
@@ -387,8 +399,13 @@ export default class AnswerArea {
     const next = !!on;
     if (next === this.advancedCalc) return;
     this.advancedCalc = next;
-    // 关闭时清掉已输入的 recip token（否则存在不可见的不合法 token）
-    if (!next && this.tokens.some((t) => t.type === TokenType.RECIP)) {
+    // 关闭时清掉已输入的**全部高级 token**（否则存在不可见的不合法 token）。
+    // 🔴 task-136 B：原实现只清 RECIP（INPUT-06 时代所写），未随 INPUT-07（fact/mod）
+    //   与 INPUT-08.1（pow/log）扩展 ⇒ 实测关总闸后 pow token 残留（tokens 长度仍为 7），
+    //   屏上留下「可见但按钮已消失、引擎不收」的死算式。
+    //   口径与 _hasDisabledAdvToken / isAdvKeyEnabled 统一走 ADV_TOKEN_TYPES 单一清单，
+    //   避免此处逐个符号硬写、每加一个符号又漏改一处（本缺陷已是第三次同型显形）。
+    if (!next && this.tokens.some((t) => t && ADV_TOKEN_TYPES.indexOf(t.type) >= 0)) {
       this.tokens = [];
     }
   }
@@ -531,6 +548,13 @@ export default class AnswerArea {
   addToken(token) {
     if (!this.enabled) return false;
     if (token.type === TokenType.NUMBER && this.isCardOccupied(token.cardIndex)) return false;
+    // 🔴 task-136：写入口 caps 守卫。此前 caps 只在【事件时刻】把关（按钮分派 tap 时、
+    //   setCaps 变更时），而 addToken 这个**唯一写入口**不查 caps ⇒ 任何绕过按钮的写入
+    //   （外部造 btn、存档载入、异步刷新漏调 setCaps）都能让已禁用记号存活；
+    //   又因 setCaps 的 changed 短路在同值时直接 return，事后再调也清不掉。
+    //   ⇒ 在写入口收口，与 isAdvKeyEnabled 共用判据（含 §10.1 pow/log === true 不对称）。
+    const advKey = TOKEN_ADV_KEY[token.type];
+    if (advKey && !this.isAdvKeyEnabled(advKey)) return false;
     this.tokens.push(token);
     return true;
   }

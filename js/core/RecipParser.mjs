@@ -56,6 +56,10 @@ export const ERR = {
   LOG_OPERAND_NOT_LEAF: 'log_operand_not_leaf',
   LOG_DOMAIN: 'log_domain',
   LOG_NOT_EXACT: 'log_not_exact',
+  // ── task-136 §10.1：子开关（caps）门禁专属码 ──
+  //   与主开关的 UNEXPECTED_TOKEN 区分：主开关关 = 整个高级计算未开；
+  //   本码 = 高级计算已开，但**该符号的子开关**是关的。上层可据 reason 分流。
+  ADVANCED_DISABLED: 'advanced_disabled',
 };
 
 export const ERR_MSG = {
@@ -68,6 +72,7 @@ export const ERR_MSG = {
   [ERR.EMPTY]: '请先输入算式',
   [ERR.CARD_REUSED]: '每张牌只能用一次',
   [ERR.DIVISION_BY_ZERO]: '算式包含除零，无法求值',
+  [ERR.ADVANCED_DISABLED]: '请先在设置中开启「高级计算」里的该符号',
   [ERR.POW_DANGLING]: '幂需要底数和指数（开方为连按两次 ^）',
   [ERR.POW_OPERAND_NOT_LEAF]: '幂只能作用于牌面数字',
   [ERR.POW_NOT_EXACT]: '开方结果必须是精确值',
@@ -411,6 +416,31 @@ export function checkUserAnswer(tokens, cardValues, opts) {
   const ADV_TOKENS = ['recip', 'fact', 'mod', 'pow', 'log'];
   if (!advancedCalc && (tokens || []).some((t) => t && ADV_TOKENS.indexOf(t.type) >= 0)) {
     return { pass: false, reason: ERR.UNEXPECTED_TOKEN, message: '请先在设置中开启「高级计算」' };
+  }
+  // ── 🔴 task-136 A：子开关（caps）不变式校验 ──
+  //   缺口实证：此前仅校验主开关 ⇒ advancedCalc=true 且 capPow=false 时，
+  //   提交 2^3*3*1 得 pass=true（照常求值 + 照常通关）。
+  //   UI 侧 caps 拦截全在**事件时刻**（按钮 tap :814 / setCaps 变更 :424），
+  //   而唯一写入口 addToken 无守卫、canSubmit 不查 caps ⇒ 靠时序保证而非不变式。
+  //   故引擎侧必须兜底：它是不变式层，不依赖任何 UI 时序。
+  //   🔴 口径与 AnswerArea.isAdvKeyEnabled 逐条一致，禁另立（INPUT-08 §10.1 有意不对称）：
+  //     recip/fact/mod ⇒ !== false（缺省即开）    pow/log ⇒ === true（缺省即关）
+  //   🔴 两种传参形态都认：平铺 opts.capPow / 嵌套 opts.caps.pow（实测二者原先均不消费）。
+  //   🔴 未传任何 caps 信息 ⇒ 整体跳过本校验，与本次改动前逐位一致
+  //     （现调用点 PageRenderer:741 只传 advancedCalc，不得因本改动改变其行为）。
+  const CAP_KEYS = { recip: 'capRecip', fact: 'capFact', mod: 'capMod', pow: 'capPow', log: 'capLog' };
+  const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+  const capsGiven = !!(opts && (opts.caps
+    || Object.keys(CAP_KEYS).some((k) => hasOwn(opts, CAP_KEYS[k]))));
+  if (advancedCalc && capsGiven) {
+    const capRaw = (k) => (hasOwn(opts, CAP_KEYS[k]) ? opts[CAP_KEYS[k]]
+      : (hasOwn(opts.caps, k) ? opts.caps[k] : undefined));
+    // 有意不对称：pow/log 严格 === true，其余 !== false
+    const isOpen = (k) => ((k === 'pow' || k === 'log') ? capRaw(k) === true : capRaw(k) !== false);
+    const blocked = (tokens || []).some((t) => t && hasOwn(CAP_KEYS, t.type) && !isOpen(t.type));
+    if (blocked) {
+      return { pass: false, reason: ERR.ADVANCED_DISABLED, message: ERR_MSG[ERR.ADVANCED_DISABLED] };
+    }
   }
   const pr = parse(tokens, cardValues);
   if (!pr.ok) {
