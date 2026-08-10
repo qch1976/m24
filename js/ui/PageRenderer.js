@@ -116,6 +116,9 @@ export default class PageRenderer {
     this.dealState = DEAL_STATE.IDLE;
     this.dealtCards = [];
     this.dealStartAt = 0;
+    // 🔴 task-127 B：DEALING 期改设置的待补算标记（转 DONE 时消费）。
+    //   显式初始化：不依赖 undefined 的假值语义，便于静态阅读与断言。
+    this._recipRecomputePending = false;
     this.dealCount = 0;
     this.background = null;
     // INPUT-01.1 新增：素材预加载状态
@@ -224,6 +227,10 @@ export default class PageRenderer {
     //     2) 仅牌面就绪时重算：未发牌或发牌动画中重算无意义，且会把 _recipDisplay
     //        置空导致按钮闪灰（_renderTable 的 auxEnabled 依赖它）
     const changed = JSON.stringify([this._advancedCalc, this._caps || null]) !== prevSig;
+    // 🔴 task-127 B：口径真变但牌面未就绪（DEALING 期）时，不能就此丢弃，
+    //   否则转 DONE 后 _recipResult 永远是旧 caps。挂 pending，由 :514 转 DONE 时消费。
+    //   ⚠️ 仅在【真变】时挂，避免每次面板点击都挂上导致白白重算一次。
+    if (changed && this.dealState !== DEAL_STATE.DONE) this._recipRecomputePending = true;
     if (
       changed &&
       this.dealState === DEAL_STATE.DONE &&
@@ -512,6 +519,20 @@ export default class PageRenderer {
       const totalMs = 3 * CARD_DELAY_MS + CARD_FLIP_MS;
       if (now - this.dealStartAt >= totalMs) {
         this.dealState = DEAL_STATE.DONE;
+        // 🔴 task-127 B（Tester 交叉复核报出，已独立复现）：消费 DEALING 期被拦下的重算。
+        //   缺陷链：发牌动画窗口（3×150+400 = 850ms）内用户可点⚙（该按钮无 disabled
+        //   也无 dealState 守卫，:651 的 DEALING 守卫只拦重复发牌）⇒ _applyAdvancedCalc 的
+        //   dealState 门禁不成立不重算 ⇒ 而 :664 的枚举在置 DEALING 【之前】已跑完
+        //   ⇒ 转 DONE 后无任何补算 ⇒ _recipResult 留旧 caps ⇒ [提示]/[答案] 仍展示已关符号，
+        //   G-5 原缺陷在此路径存活。
+        if (this._recipRecomputePending) {
+          this._recipRecomputePending = false;
+          if (this.dealtCards && this.dealtCards.length === 4) {
+            this._computeRecipAsync(
+              this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)),
+            );
+          }
+        }
       }
     }
 
@@ -662,6 +683,9 @@ export default class PageRenderer {
     }
     // INPUT-06：发牌后异步枚举倒数解（分区展示 + 提示需要）
     this._computeRecipAsync(this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)));
+    // 🔴 task-127 B：新一局的枚举刚用当前 caps 跑过 ⇒ 清除上一局遗留的 pending，
+    //   否则上局未消费的标记会让本局白白重算一次（结果相同，纯浪费 + 按钮闪灰）。
+    this._recipRecomputePending = false;
     this.dealCount += 1;
     this.dealState = DEAL_STATE.DEALING;
     this.dealStartAt = Date.now();
