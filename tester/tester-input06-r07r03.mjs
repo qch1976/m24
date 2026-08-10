@@ -319,8 +319,55 @@ ck('R-03 DESIGN_W=411 / DESIGN_H=891 基线常量存在',
    /DESIGN_W\s*=\s*411/.test(aa) && /DESIGN_H\s*=\s*891/.test(aa));
 ck('R-03 setAdvancedCalc 幂等短路（避免重复重排）',
    /setAdvancedCalc[\s\S]{0,260}?(===\s*this\.advancedCalc|this\.advancedCalc\s*===)/.test(aa));
-ck('R-03 关闭高级时清理已输入的 RECIP token（防残留非法态）',
-   /!next\s*&&\s*this\.tokens\.some\([\s\S]{0,80}TokenType\.RECIP/.test(aa));
+
+// ═══ R-03 关闸清理：源码正则 → 行为断言（task-136 裁定方案①）═══
+// 🔴 升级缘由（实测记录，非猜测）：
+//   原断言 `/!next\s*&&\s*this\.tokens\.some\([\s\S]{0,80}TokenType\.RECIP/.test(aa)`
+//   量的是**源码字符串**（`aa` 来自 :124 readFileSync），不是运行行为 ⇒ 属代理量。
+//   task-136 把清空范围从 RECIP 扩到 ADV_TOKEN_TYPES 清单（RECIP/FACT/MOD/POW/LOG），
+//   源码 some() 内不再出现字面 `TokenType.RECIP` ⇒ 正则失配，**但行为意图未破且为超集**。
+//   我实测两侧对照：基线与清单写法均「关闸前 tokens=2 ⇒ 关闸后 0、RECIP 残留=false」。
+//   ⇒ 是判据锁死实现写法（合法重构被打红），非实现缺陷 ⇒ 升级为同层行为断言。
+// 🔴 判据分层：判「关闸后 token 是否残留」就直接读运行后的 this.tokens，不绕源码文本层。
+// 🔴 双向：① RECIP 必须被清（原意图，不得退化）② 关闸前必须真的存在（否则「清空」恒真假绿）。
+{
+  const AAC = await (async () => {
+    try { const m = await import('../js/ui/AnswerArea.js'); return m && m.default; } catch { return null; }
+  })();
+  if (typeof AAC !== 'function') {
+    // 裸跑无 esm-hooks 时 './Components' 无扩展名 spec 解析失败 ⇒ 降级保留源码口径，不硬失败。
+    // 降级判据放宽为「清空动作存在」，不锁定具体符号清单（否则又回到代理量老路）。
+    console.log('  ⏸ R-03 行为断言跳过（未加载到 AnswerArea 默认导出）→ 降级源码核查');
+    ck('R-03 关闸存在清空 tokens 的动作（源码降级口径）',
+       /!next\s*&&\s*this\.tokens\.some\(/.test(aa) && /this\.tokens\s*=\s*\[\]/.test(aa));
+  } else {
+    const mk = () => {
+      const a = new AAC({ x: 0, y: 0, w: 600, h: 200 });
+      a.cardValues = [4, 6, 1, 1];
+      a.enabled = true;
+      a.setAdvancedCalc(true);
+      // 显式全开：出厂默认 pow/log 为 false（§10.1 不对称），依赖默认会使写入被守卫拒收。
+      if (typeof a.setCaps === 'function') {
+        a.setCaps({ recip: true, fact: true, mod: true, pow: true, log: true });
+      }
+      return a;
+    };
+    const a = mk();
+    a.addToken({ type: 'number', cardIndex: 0 });
+    a.addToken({ type: 'recip' });
+    const beforeN = a.tokens.length;
+    const hadRecip = a.tokens.some((t) => t.type === 'recip');
+    a.setAdvancedCalc(false);                       // 真实状态转换，未手工赋值 tokens
+    const leftRecip = a.tokens.some((t) => t.type === 'recip');
+    // ② 存在性前置：关闸前 RECIP 必须真在，否则下条恒真
+    ck('R-03 存在性前置：关闸前 RECIP token 确实已写入（否则清空断言恒真）',
+       hadRecip === true && beforeN >= 2, `关闸前 tokens=${beforeN} 含recip=${hadRecip}`);
+    // ① 原意图：RECIP 不得残留
+    ck('R-03 关闭高级时清理已输入的 RECIP token（防残留非法态·行为断言）',
+       leftRecip === false,
+       `关闸后 tokens=${a.tokens.length} RECIP残留=${leftRecip}`);
+  }
+}
 
 hdr('R-01 / R-06 · 静态锚点（SettingsPanel 开关 + PageRenderer 分区）');
 

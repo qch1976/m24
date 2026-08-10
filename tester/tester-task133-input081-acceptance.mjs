@@ -265,6 +265,39 @@ console.log('\n--- V-5 增补：子开关引擎侧不变式（入库态应全红
   const l2 = run(LOG24(), LOG_CARDS, { advancedCalc: true, caps: { log: false } });
   check('V-5.11 🔴 caps.log=false（嵌套）时含对数的 24 解不得 pass=true',
     l2.pass !== true, `pass=${l2.pass} reason=${codeOf(l2)}`);
+
+  // ══ 键缺省维度（task-136 自补）：§10.1 不对称口径 ══
+  // 🔴 补这组的缘由（诚实记录我方判据缺口）：
+  //   上方 V-5.8..5.11 均传**显式** false，对照组 `capsOf()` 展开后也是**显式** `capPow: true`
+  //   （实测 `ALL_ON` 含 `capPow: true`）⇒ 全 59 条中 `pow`/`log` 只出现过「显式 true / 显式 false」。
+  //   ⇒ 若实现把 `=== true` 写成 `!== false`（破 §10.1 不对称），**上方 59 条全绿拓不住**。
+  //   已实测确认：植入 A/B 实现后改 `!== false` ⇒ 仍 `pass=59 fail=0`（假绿）。
+  // 【§10.1 口径】recip/fact/mod = 「非 false 即开」；pow/log = 「**=== true 才开**」。
+  //   ∴ caps 已传但 pow 键缺省 ⇒ pow **应判为关**（缺省即关）；recip 键缺省 ⇒ **应放行**（缺省即开）。
+  const kPow = run(POW24(), POW_CARDS, { advancedCalc: true, caps: { recip: true, fact: true, mod: true } });
+  check('V-5.14 🔴 §10.1：caps 已传但 pow 键缺省 ⇒ 应按【关】处理，含幂 24 解不得 pass=true',
+    kPow.pass !== true, `pass=${kPow.pass} reason=${codeOf(kPow)}`);
+  const kPowFlat = run(POW24(), POW_CARDS, { advancedCalc: true, capRecip: true, capFact: true, capMod: true });
+  check('V-5.15 🔴 §10.1：平铺已传但 capPow 键缺省 ⇒ 同样按【关】处理',
+    kPowFlat.pass !== true, `pass=${kPowFlat.pass} reason=${codeOf(kPowFlat)}`);
+  const kLog = run(LOG24(), LOG_CARDS, { advancedCalc: true, caps: { recip: true, fact: true, mod: true } });
+  check('V-5.16 🔴 §10.1：caps 已传但 log 键缺省 ⇒ 应按【关】处理',
+    kLog.pass !== true, `pass=${kLog.pass} reason=${codeOf(kLog)}`);
+  // 🔴 不对称的**反面**：recip 缺省必须放行。
+  //   无此条则实现可用「一律 === true」蒙过上三条，把 recip 也误关（知道答案式修正）。
+  // 🔴 recip 是**前缀**：`unary := 'RECIP' atomLeaf`（`RecipParser.mjs:12,244-250`），非后缀。
+  //   用 4/(1/6)*1*1 = 24，牌组 [4,6,1,1]，实测 caps 全开时 pass=true。
+  // 🔴 先做存在性前置：若该式本身不成立，下条会因「本来就不通过」而两义。
+  const RECIP24 = () => [N(0), op('/'), { type: 'recip' }, N(1), op('*'), N(2), op('*'), N(3)];
+  const RECIP_CARDS = [4, 6, 1, 1];
+  const rOn = run(RECIP24(), RECIP_CARDS, capsOf());
+  check('V-5.17 存在性前置：caps 全开时 4/(1/6)*1*1 必须判 24（否则 5.18 不可信）',
+    rOn.pass === true, `pass=${rOn.pass} reason=${codeOf(rOn)}`);
+  // 🔴 此条用 pass 而非 reason 判：避免 `trailing_token` 等文法错让它假绿（两义不可分）。
+  const kRecipOmit = run(RECIP24(), RECIP_CARDS, { advancedCalc: true, caps: { pow: true, log: true } });
+  check('V-5.18 🔴 §10.1 反面：recip 键缺省 ⇒ 应按【开】处理，含 recip 的 24 解必须仍 pass=true',
+    kRecipOmit.pass === true,
+    `pass=${kRecipOmit.pass} reason=${codeOf(kRecipOmit)} msg=${msgOf(kRecipOmit).slice(0, 24)}`);
 }
 
 // ══════════ V-5 增补（task-135）：UI 写入口与总闸清空 ══════════
@@ -429,7 +462,7 @@ console.log('\n--- V-10 门禁自检：pass + fail == EXPECTED_ASSERTION_COUNT -
 //     ⇒ 仅当加载到带 caps 的真身（需 esm-hooks）时执行；无 hooks 时条件跳过
 //     ⇒ 同 task-131 D-0b 口径：**不写死会随环境浮动的值**，用 UI_SKIPPED 吸收
 //   ∴ 裸跑 57；带 hooks 59
-const EXPECTED_ASSERTION_COUNT = 57 + (UI_SKIPPED ? 0 : 2);
+const EXPECTED_ASSERTION_COUNT = 62 + (UI_SKIPPED ? 0 : 2);
 //  分项算式：V-1 5 + V-2 6 + V-3 3 + V-4 17（1 存在性 + 8 码 × 2：触发 + 文案）
 //          + V-5 5 + V-6 3 + V-7 3 + V-8 3 + V-9 3（0/1/2）+ V-10 本条 1 = 49 + 2 = 51
 //  🔴 变更本常量时，上述分项算式必须同步（否则退化为魔法数字）
