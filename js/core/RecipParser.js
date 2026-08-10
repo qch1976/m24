@@ -25,6 +25,9 @@
 import {
   numLeaf, recipLeaf, factLeaf, modLeaf, F, addF, subF, mulF, divF, is24F,
   countRecip, countFact, countMod, factBig, isFactDegenerate, FACT_MAX_CARD,
+  // 🔴 INPUT-08.1 §3.4/§4：幂/开方/对数求值一律复用引擎侧 BigInt 原语，
+  //   禁在本层重写（禁 Math.pow/Math.log/Math.sqrt/toFixed）。
+  ipow, rootExact, logExact, countPow, countLog,
 } from './RecipSolver';
 
 export const ERR = {
@@ -44,6 +47,15 @@ export const ERR = {
   MOD_DANGLING: 'mod_dangling',
   MOD_BY_ZERO: 'mod_by_zero',
   MOD_NOT_INTEGER: 'mod_not_integer',
+  // ── INPUT-08.1 §4：幂 / 开方 / 对数专属错误码（🔴 禁再落通用 TRAILING_TOKEN）──
+  POW_DANGLING: 'pow_dangling',
+  POW_OPERAND_NOT_LEAF: 'pow_operand_not_leaf',
+  POW_NOT_EXACT: 'pow_not_exact',
+  POW_CHAINED: 'pow_chained',
+  LOG_DANGLING: 'log_dangling',
+  LOG_OPERAND_NOT_LEAF: 'log_operand_not_leaf',
+  LOG_DOMAIN: 'log_domain',
+  LOG_NOT_EXACT: 'log_not_exact',
 };
 
 export const ERR_MSG = {
@@ -56,6 +68,14 @@ export const ERR_MSG = {
   [ERR.EMPTY]: '请先输入算式',
   [ERR.CARD_REUSED]: '每张牌只能用一次',
   [ERR.DIVISION_BY_ZERO]: '算式包含除零，无法求值',
+  [ERR.POW_DANGLING]: '幂需要底数和指数（开方为连按两次 ^）',
+  [ERR.POW_OPERAND_NOT_LEAF]: '幂只能作用于牌面数字',
+  [ERR.POW_NOT_EXACT]: '开方结果必须是精确值',
+  [ERR.POW_CHAINED]: '幂不能连续使用（如 2^3^4）',
+  [ERR.LOG_DANGLING]: '对数需要底数和真数',
+  [ERR.LOG_OPERAND_NOT_LEAF]: '对数只能作用于牌面数字',
+  [ERR.LOG_DOMAIN]: '对数的底须大于 1、真数须大于 0',
+  [ERR.LOG_NOT_EXACT]: '对数结果必须是整数',
   [ERR.FACT_OPERAND_NOT_LEAF]: '阶乘只能作用于牌面数字',
   [ERR.FACT_DANGLING]: '阶乘前面需要一个数字',
   [ERR.MOD_OPERAND_NOT_LEAF]: '取模两侧只能是牌面数字',
@@ -123,17 +143,78 @@ class P {
     return node;
   }
 
-  // term := modish (('*'|'/') modish)*
+  // term := powish (('*'|'/') powish)*        ← ★ INPUT-08.1 §1.2
   term() {
-    let node = this.modish();
+    let node = this.powish();
     for (;;) {
       if (this.isOp('*') || this.isOp('/')) {
         const op = this.next().value;
-        const rhs = this.modish();
+        const rhs = this.powish();
         node = { op, a: node, b: rhs };
       } else break;
     }
     return node;
+  }
+
+  // ============ INPUT-08.1 §1.2 / §2.2 / §3.1 ============
+  // powish := modish (('^' ['^']) modish)? | 'LOG' ...
+  // 🔴 项目主 2026-08-11 裁定：幂/对数与 % **同级**、**不可链式**。
+  //   写成 `?`（最多一次）而非 `*` ⇒ 2^3^4 在语法层即无法接受（同 modish 的 (7%3)%2）。
+  // 🔴 §3.1 开方：'^' 连按两次 ⇒ b 作根指数（专用字段 rootIdx），**不建 1/b 子树**
+  //   （建子树会让 R 位误标，INPUT-08 §1.2 已论证）。第三次 '^' ⇒ POW_DANGLING。
+  powish() {
+    const left = this.modish();
+    const t = this.peek();
+    if (t && (t.type === 'pow' || t.type === 'log')) {
+      const isPow = t.type === 'pow';
+      this.next();
+      const DANGLING = isPow ? ERR.POW_DANGLING : ERR.LOG_DANGLING;
+      const NOT_LEAF = isPow ? ERR.POW_OPERAND_NOT_LEAF : ERR.LOG_OPERAND_NOT_LEAF;
+      // §3.1：第二个 '^' ⇒ 开方；第三个 '^' ⇒ POW_DANGLING（最多两次）
+      let isRoot = false;
+      if (isPow && this.peek() && this.peek().type === 'pow') {
+        this.next();
+        isRoot = true;
+        if (this.peek() && this.peek().type === 'pow') fail(ERR.POW_DANGLING); // a^^^b
+      }
+      const nxt = this.peek();
+      if (!nxt || nxt.type === 'operator' || nxt.type === 'right_paren') fail(DANGLING);
+      const right = this.modish();
+      // §1.3 / §2.2 通则：两侧均须为未经修饰的原始牌面叶子
+      if (!isRawLeaf(left) || !isRawLeaf(right)) fail(NOT_LEAF);
+      // 🔴 不可链式：右侧之后若又出现 '^'/'log'，报专属 POW_CHAINED 而非通用 trailing_token
+      const after = this.peek();
+      if (after && (after.type === 'pow' || after.type === 'log')) fail(ERR.POW_CHAINED);
+      return isPow
+        ? this.mkPow(left, right, isRoot)
+        : this.mkLog(left, right);
+    }
+    return left;
+  }
+
+  // §3.1 + §3.4：开方走 rootIdx 专用字段；结果须精确，否则 POW_NOT_EXACT。
+  mkPow(left, right, isRoot) {
+    const a = left.card, b = right.card;
+    if (!Number.isInteger(a) || !Number.isInteger(b)) fail(ERR.POW_OPERAND_NOT_LEAF);
+    if (isRoot) {
+      if (b < 2) fail(ERR.POW_DANGLING);            // a^(1/1) 退化、a^(1/0) 无意义
+      const r = rootExact(a, b);                    // 引擎侧 BigInt 整数幂反查
+      if (r === null) fail(ERR.POW_NOT_EXACT);      // 如 2^(1/2) 无理
+      return { op: 'pow', a: left, b: right, rootIdx: b, v: r };
+    }
+    if (b < 0) fail(ERR.POW_DANGLING);
+    return { op: 'pow', a: left, b: right, v: F(ipow(a, b)) };
+  }
+
+  // §2.2 + §4：对数定义域与精确性分别报 LOG_DOMAIN / LOG_NOT_EXACT
+  mkLog(left, right) {
+    const a = left.card, b = right.card;
+    if (!Number.isInteger(a) || !Number.isInteger(b)) fail(ERR.LOG_OPERAND_NOT_LEAF);
+    if (a <= 1 || b <= 0) fail(ERR.LOG_DOMAIN);     // 底 ≤1（含 0/1）、真数 ≤0
+    const v = logExact(a, b);                       // 引擎侧 BigInt，禁 Math.log
+    if (v === null) fail(ERR.LOG_NOT_EXACT);        // 如 log_2 3 无理
+    if (v.d !== 1n) fail(ERR.LOG_NOT_EXACT);        // 非整数（如 log_4 8 = 3/2）
+    return { op: 'log', a: left, b: right, v };
   }
 
   // ============ INPUT-07 §1.3：modish := unary ('%' unary)? ============
@@ -277,6 +358,12 @@ export function evalAst(ast) {
       if (!Number.isInteger(t.arg.card) || t.arg.card < 0) return null;
       return F(factBig(t.arg.card));
     }
+    // INPUT-08.1 §1/§2/§3：幂 / 开方 / 对数。
+    // 🔴 值在 parser 构造时已由引擎侧 BigInt 原语算出并存于 t.v（禁在此重算、禁浮点）；
+    //   开方由 rootIdx 字段标识，不建 1/b 子树。
+    if (t.op === 'pow' || t.op === 'log') {
+      return t.v !== undefined && t.v !== null ? t.v : null;
+    }
     // INPUT-07：模（限叶子，§1.3.2 非负整数 + b>0）
     if (t.op === 'mod') {
       const ma = rec(t.a);
@@ -319,7 +406,9 @@ export function checkUserAnswer(tokens, cardValues, opts) {
   const advancedCalc = !!(opts && opts.advancedCalc);
   // 高级计算关闭时不允许出现任何高级 token（开关关闭 = INPUT-05 计算行为）
   // INPUT-07 §1.1：单一开关控制全部高级符号（倒数、阶乘、模）
-  const ADV_TOKENS = ['recip', 'fact', 'mod'];
+  // 🔴 INPUT-08.1 §5：补登记 'pow'/'log'（原缺失 ⇒ capPow 关时输入 8^3 误报
+  //   「算式格式不正确」而非「请先开启高级计算」；task-129 实测坐实）。
+  const ADV_TOKENS = ['recip', 'fact', 'mod', 'pow', 'log'];
   if (!advancedCalc && (tokens || []).some((t) => t && ADV_TOKENS.indexOf(t.type) >= 0)) {
     return { pass: false, reason: ERR.UNEXPECTED_TOKEN, message: '请先在设置中开启「高级计算」' };
   }
@@ -335,6 +424,9 @@ export function checkUserAnswer(tokens, cardValues, opts) {
     // INPUT-07：fact 占 1 牌、mod 占 2 牌
     if (t.op === 'fact') { slots.push(t.arg.slot); return; }
     if (t.op === 'mod') { slots.push(t.a.slot); slots.push(t.b.slot); return; }
+    // INPUT-08.1：pow / log 各占 2 牌（同 mod）。开方的根指数牌亦计入（rootIdx 形态
+    //   仍有 b 叶子），故此处无需特判 rootIdx。
+    if (t.op === 'pow' || t.op === 'log') { slots.push(t.a.slot); slots.push(t.b.slot); return; }
     walk(t.a); walk(t.b);
   };
   walk(pr.ast);
@@ -360,12 +452,16 @@ export function checkUserAnswer(tokens, cardValues, opts) {
   };
   const usedFact = countFactEff(pr.ast) > 0;
   const usedMod = countMod(pr.ast) > 0;
-  const usedAdv = usedRecip || usedFact || usedMod;
+  // 🔴 INPUT-08.1 §9.8：P/L 位一律走 countPow/countLog 的**节点存在性**，
+  //   禁从渲染文本反推（别名擦除：开方渲染为 √a，文本里没有 '^'）。
+  const usedPow = countPow(pr.ast) > 0;
+  const usedLog = countLog(pr.ast) > 0;
+  const usedAdv = usedRecip || usedFact || usedMod || usedPow || usedLog;
   if (ev.is24) {
-    return { pass: true, ast: pr.ast, value: ev.value, usedRecip, usedFact, usedMod, usedAdv };
+    return { pass: true, ast: pr.ast, value: ev.value, usedRecip, usedFact, usedMod, usedPow, usedLog, usedAdv };
   }
   const label = ev.value.d === 1n ? String(ev.value.n) : `${ev.value.n}/${ev.value.d}`;
-  return { pass: false, reason: 'not_24', actualLabel: label, value: ev.value, usedRecip, usedFact, usedMod, usedAdv };
+  return { pass: false, reason: 'not_24', actualLabel: label, value: ev.value, usedRecip, usedFact, usedMod, usedPow, usedLog, usedAdv };
 }
 
 export default {
