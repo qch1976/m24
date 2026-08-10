@@ -185,6 +185,31 @@ console.log('\n--- 四、B 项 发牌动画中改设置的补算路径（真漏�
       tick.call(hDeal, 1000 + 2000);
       check('B-9 补算标记仅消费一次（后续帧不得反复重算）', hDeal.calls.length === 1,
         `calls=${hDeal.calls.length}`);
+
+      // 🔴 task-127 复核补充（Tester 独立探边，开发未覆盖）：
+      //   B-10 误触方向、B-11 DEALING 期多次改设置的幂等。
+      //   两条的必要性：B-8/B-9 只能证「该补算时补了」，证不了「不该补时没乱补」；
+      //   若产品误写成无条件补算（删掉 pending 守卫），B-8/B-9 照样全绿。
+      {
+        const hNo = new Host(DEAL_STATE.DEALING, CARDS);
+        const tickNo = new Function('DEAL_STATE', 'CARD_DELAY_MS', 'CARD_FLIP_MS',
+          `return function (now) { ${transBlock[0]} };`)(DEAL_STATE, 150, 400);
+        hNo.dealStartAt = 1000;
+        tickNo.call(hNo, 1000 + 3 * 150 + 400);   // 未改过设置，直接转 DONE
+        check('B-10 🔴 未改设置的正常发牌 ⇒ 转 DONE 不得补算（防无条件重算伪装成修好）',
+          hNo.dealState === DEAL_STATE.DONE && hNo.calls.length === 0,
+          `state=${hNo.dealState} calls=${hNo.calls.length}`);
+
+        const hTwice = new Host(DEAL_STATE.DEALING, CARDS);
+        hTwice._applyAdvancedCalc(true, MOD_POW_LOG);
+        hTwice._applyAdvancedCalc(true, { recip: true, fact: false, mod: true, pow: false, log: true });
+        const tick2 = new Function('DEAL_STATE', 'CARD_DELAY_MS', 'CARD_FLIP_MS',
+          `return function (now) { ${transBlock[0]} };`)(DEAL_STATE, 150, 400);
+        hTwice.dealStartAt = 1000;
+        tick2.call(hTwice, 1000 + 3 * 150 + 400);
+        check('B-11 DEALING 期改 2 次设置 ⇒ 转 DONE 只补算 1 次（幂等）', hTwice.calls.length === 1,
+          `calls=${hTwice.calls.length}`);
+      }
     }
   }
 }
@@ -280,7 +305,7 @@ console.log('\n--- 七、根目录 *.mjs 约束 ---');
 
 // ════════ 断言总数自断言（全仓 85 支中仅 8 支有，本支必须有）════════
 console.log('\n--- 断言总数自断言 ---');
-const EXPECTED_ASSERTION_COUNT = 47;   // 3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 2(D) + 1(E) = 47
+const EXPECTED_ASSERTION_COUNT = 49;   // 🔴 Tester 复核补 B-10（误触方向）+ B-11（DEALING 期多次改设置幂等）⇒ 47→49   // 3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 2(D) + 1(E) = 47
 //   🔴 task-127 复核修正：B 项 8→10（B-8 拆为 B-8a 存在性前置 + B-8 真实转换块断言，另加 B-9 幂等）
 //   🔴 首版我写 38，实跑得 42 ⇒ 我手算漏了 4 条；补 C-3/C-4/C-5 后为 45。
 //   这条自断言的价值正在于此：它抓住的是「测试作者自己的手算错误」，不是产品缺陷。
