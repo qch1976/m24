@@ -35,7 +35,9 @@ ck('V-7a 2次^ 合法（开方）', checkLegality([N(0),POW,POW,N(1)]).legal===t
 ck('V-7b 3次^ 拒 pow_dangling', checkLegality([N(0),POW,POW,POW,N(1)]).reason==='pow_dangling', checkLegality([N(0),POW,POW,POW,N(1)]).reason);
 ck('V-7c 开方屏显 9^(1/2', formatTokens([N(0),POW,POW,N(1)],[9,2,8,1])==='9^(1/2', '"'+formatTokens([N(0),POW,POW,N(1)],[9,2,8,1])+'"');
 // 🔴 断言总数推导（改数必同步改此注释）：
-//   V-1 ×2 + V-2 ×3 + V-3 ×3 + V-4 ×8（八码逐码）+ V-5 ×1 + V-7 ×3 = 20
+//   直接 ck 调用 12 处（V-1 ×2、V-2 ×3、V-3 ×3、V-5 ×1、V-7 ×3）
+//   + 循环体内 1 处 ck × codes 8 条（V-4 八码逐码）= 12 + 8 = 20
+//   ⚠️ 静态用行首锚计数会得 9（漏同行语句与循环体内），须与运行期实测交叉验证。
 //   首版误写 19（漏数 V-3c），由本自断言当场抓出 ⇒ V-10 机制有效。
 const EXPECTED=20;
 console.log('\nT132 TOTAL: pass='+P+' fail='+F);
