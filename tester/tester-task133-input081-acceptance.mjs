@@ -9,7 +9,11 @@
 //  5. 单支自足：不依赖「另一支恰好也测了」
 //  6. 覆盖面报数须写清「单支」还是「全套」
 //
-// 用法：node tester/tester-task133-input081-acceptance.mjs [repoRoot]
+// 用法：node --import ./tester/render-smoke/esm-hooks.mjs tester/tester-task133-input081-acceptance.mjs [repoRoot]
+// 🔴 task-135 起**必须带 --import esm-hooks**：V-5.12/5.13 需加载真实 AnswerArea 类，
+//   而 `js/ui/AnswerArea.js` 依赖无扩展名 spec（`'./Components'`），裸跑必 ERR_MODULE_NOT_FOUND。
+//   裸跑不会报错而是**条件跳过该 2 条**（总数 57）；带 hooks 时执行（总数 59）。
+//   ⇒ 验收须看带 hooks 的结果，否则 UI 层 2 条未被覆盖。
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
@@ -213,6 +217,120 @@ console.log('\n--- V-5 门禁：capPow=false 输入 8^3 ⇒「请先开启」而
     `pass=${on.pass} reason=${codeOf(on)} msg=${msgOf(on).slice(0, 26)}`);
 }
 
+// ══════════ V-5 增补（task-135）：子开关引擎侧不变式 ══════════
+// 🔴 入库时本组应【全部判红】——这是先红后绿的红证，不是判据缺陷。
+//
+// 【被判事实】`checkUserAnswer` 只读 `opts.advancedCalc`（总开关），**不消费子开关**：
+//   实测 `js/core/RecipParser.mjs:405-470` 函数体内 `caps` 出现 0 次。
+//   ⇒ 子开关关闭时，含该符号的 24 解仍被判 `pass=true`（照常求值 + 照常通关）。
+//
+// 【为何锚引擎侧】caps 在 UI 侧的把关全在**事件时刻**（`:814` tap、`:424` setCaps、`:690-714` 绘制），
+//   而唯一写入口 `addToken`（`:531-535`）只查 `enabled` + `isCardOccupied`，**caps 零出现**。
+//   ⇒ 防线是「时序保证」而非「不变式保证」；引擎侧校验才是不变式层。
+//   🔴 根因在 `addToken` 无守卫，**不在** `setCaps` 的 `changed` 短路（短路是正确的性能优化）。
+//
+// 【极性】全写「**不得** pass=true」= 应该怎样；禁写「现在 pass=true」（把现象当期望）。
+console.log('\n--- V-5 增补：子开关引擎侧不变式（入库态应全红＝红证）---');
+{
+  // 幂：2^3*3*1 = 24，牌组 [2,3,3,1]（四牌各用一次）
+  const POW24 = () => [N(0), POW, N(1), op('*'), N(2), op('*'), N(3)];
+  const POW_CARDS = [2, 3, 3, 1];
+  // 对数：2log8*4*2 = 24，牌组 [2,8,4,2]。log 是**中缀**（底 log 真数），非前缀
+  const LOG24 = () => [N(0), LOG, N(1), op('*'), N(2), op('*'), N(3)];
+  const LOG_CARDS = [2, 8, 4, 2];
+
+  // 🔴 存在性前置：先证 caps 全开时两式**确实成立 24**。
+  //   否则下方「不得 pass=true」会因「本来就不通过」而假绿（零/空集判据必配存在性前置）。
+  //   🔴 双向第二面：也防引擎侧守卫做过头、把 caps 全开的正常解也拦了。
+  const powOn = run(POW24(), POW_CARDS, capsOf());
+  const logOn = run(LOG24(), LOG_CARDS, capsOf());
+  check('V-5.6 存在性前置+双向：caps 全开时 2^3*3*1 必须判 24',
+    powOn.pass === true, `pass=${powOn.pass} reason=${codeOf(powOn)}`);
+  check('V-5.7 存在性前置+双向：caps 全开时 2log8*4*2 必须判 24',
+    logOn.pass === true, `pass=${logOn.pass} reason=${codeOf(logOn)}`);
+
+  // ①② 幂 × （平铺 capPow / 嵌套 caps.pow）——两形态均验：
+  //   实测二者当前都不被消费，实现须同时认，否则只改一种仍留缺口。
+  const p1 = run(POW24(), POW_CARDS, { advancedCalc: true, capPow: false });
+  check('V-5.8 🔴 capPow=false（平铺）时含幂的 24 解不得 pass=true',
+    p1.pass !== true, `pass=${p1.pass} reason=${codeOf(p1)}`);
+  const p2 = run(POW24(), POW_CARDS, { advancedCalc: true, caps: { pow: false } });
+  check('V-5.9 🔴 caps.pow=false（嵌套）时含幂的 24 解不得 pass=true',
+    p2.pass !== true, `pass=${p2.pass} reason=${codeOf(p2)}`);
+
+  // ③④ 对数 × （平铺 capLog / 嵌套 caps.log）
+  const l1 = run(LOG24(), LOG_CARDS, { advancedCalc: true, capLog: false });
+  check('V-5.10 🔴 capLog=false（平铺）时含对数的 24 解不得 pass=true',
+    l1.pass !== true, `pass=${l1.pass} reason=${codeOf(l1)}`);
+  const l2 = run(LOG24(), LOG_CARDS, { advancedCalc: true, caps: { log: false } });
+  check('V-5.11 🔴 caps.log=false（嵌套）时含对数的 24 解不得 pass=true',
+    l2.pass !== true, `pass=${l2.pass} reason=${codeOf(l2)}`);
+}
+
+// ══════════ V-5 增补（task-135）：UI 写入口与总闸清空 ══════════
+// 🔴 本组必须跑**真实 AnswerArea 类**，禁用复刻件：
+//   复刻件即使逐行照拄，也只能证「我拄的逻辑如此」，证不到「真类在真调用链上如此」。
+// 🔴 陆阱：`js/ui/AnswerArea.js` 依赖无扩展名 spec（`'./Components'`），
+//   裸 import 必报 ERR_MODULE_NOT_FOUND（实测）⇒ 需 `--import ./tester/render-smoke/esm-hooks.mjs`。
+//   本支原为裸跑，故本组做**条件跳过**：无 hooks 时计 0 条，由 UI_SKIPPED 吸收到 EXPECTED。
+//   ⇒ 无 hooks 不会把全套弄崩，有 hooks 时足 2 条。
+// 🔴 存在性前置必需：`tester/_esm/AnswerArea.mjs` 是已入库的陈旧副本
+//   （实测 21331B vs 真身 37196B，`isAdvKeyEnabled` 0 次 vs 7 次，停在 caps 机制诞生前），
+//   已造成过一次「双错互消假绿」（见 tester-input06-r07r03.mjs:271）。
+//   ⇒ 先断言原型上 `isAdvKeyEnabled` 存在，把「加载错模块」与「产品真缺陷」区分开。
+let UI_SKIPPED = true;
+{
+  let AA = null, loadErr = '';
+  try { AA = (await import(PU('js/ui/AnswerArea.js'))).default; }
+  catch (e) { loadErr = String(e && e.code || e && e.message || e).slice(0, 60); }
+
+  const hasCaps = typeof AA?.prototype?.isAdvKeyEnabled === 'function';
+  if (!AA || !hasCaps) {
+    console.log(`    ⚠ V-5.12/5.13 条件跳过（未加载到带 caps 的真身）：`
+      + `AA=${!!AA} isAdvKeyEnabled=${hasCaps} ${loadErr}`);
+    console.log('      ⇒ 需带 --import ./tester/render-smoke/esm-hooks.mjs 重跑本组');
+  } else {
+    UI_SKIPPED = false;
+    const mkArea = (allOn) => {
+      const a = new AA({ x: 0, y: 0, w: 600, h: 200 });
+      a.cardValues = [2, 3, 3, 1];
+      a.enabled = true;
+      a.setAdvancedCalc(true);
+      // 🔴 必须**显式** setCaps：`:379` 出厂默认 pow:false/log:false（§10.1 不对称），
+      //   依赖默认值会使对照组假红。
+      a.setCaps({ recip: true, fact: true, mod: true, pow: allOn, log: allOn });
+      return a;
+    };
+    const POWTOK = () => [N(0), POW, N(1), op('*'), N(2), op('*'), N(3)];
+
+    // ⑤ 写入口守卫：锚 `addToken`（真根因），**非**锚 `changed` 短路。
+    //   若锚短路，将来短路被改而 addToken 仍无守卫时这条会假绿。
+    const g = mkArea(false);                       // caps: pow=false
+    const before = g.tokens.length;
+    const accepted = g.addToken({ type: 'pow' });   // 绕过按钮直接写入
+    check('V-5.12 🔴 写入口守卫：caps.pow=false 时 addToken(POW) 应拒收且 tokens 不增长',
+      accepted === false && g.tokens.length === before,
+      `addToken返=${accepted} tokens ${before}→${g.tokens.length}`
+      + ` isAdvKeyEnabled(pow)=${g.isAdvKeyEnabled('pow')}`);
+
+    // ⑥ A 路径：关总闸后 POW/LOG/FACT/MOD 不得残留
+    //   🔴 抽**真实状态转换块**：通过 a.addToken() 逐个写入（caps 全开下合法），
+  //   再调真实 a.setAdvancedCalc(false)；全程**未手工赋值** a.tokens。
+    //   实读 `:390`：`if (!next && this.tokens.some((t) => t.type === TokenType.RECIP)) this.tokens = [];`
+    //   ⇒ 只清 RECIP，未随 INPUT-07/08 扩展到 FACT/MOD/POW/LOG。
+    const h = mkArea(true);                        // caps 全开 ⇒ pow 可合法写入
+    let wrote = 0;
+    for (const t of POWTOK()) { if (h.addToken(t) === true) wrote++; }
+    const hadPow = h.tokens.some((t) => t.type === 'pow');
+    h.setAdvancedCalc(false);                      // 真实状态转换（非手工赋值）
+    const leftAdv = h.tokens.filter((t) => ['pow', 'log', 'fact', 'mod'].includes(t.type));
+    check('V-5.13 🔴 关总开关后 POW/LOG/FACT/MOD token 不得残留（覆盖 :390 只清 RECIP）',
+      leftAdv.length === 0,
+      `写入${wrote}个 写入后有pow=${hadPow} 关总闸后残留=${leftAdv.length}个`
+      + `[${leftAdv.map((t) => t.type).join(',')}] tokens长=${h.tokens.length}`);
+  }
+}
+
 // ══════════ V-6 §6 三层联动 ══════════
 console.log('\n--- V-6 三层联动（① 绘制/命中区 ② addToken 拒收 ③ 门禁文案）---');
 {
@@ -303,7 +421,15 @@ console.log('\n--- V-9 零误伤：INPUT-08.md §8 基准表数字逐项不变 -
 //   而由 SKIPPED_V9 吸收 —— 与 task-131 的 SKIPPED_CONDITIONAL 同法：
 //   写死会在另一环境造假红，且「为闭合调数字」被明令禁止。
 console.log('\n--- V-10 门禁自检：pass + fail == EXPECTED_ASSERTION_COUNT ---');
-const EXPECTED_ASSERTION_COUNT = 51;
+// 🔴 分项推导（禁写死裸数字，用可推导算式）：
+//   V-1 5 + V-2 8 + V-3 3 + V-4 17 + V-5 5 + V-6 3 + V-7 3 + V-8 3 + V-9 3 + V-10 1 = 51  （task-133）
+//   task-135 增补 6 条：V-5.6/5.7（存在性前置+双向）+ V-5.8..5.11（幂/对数 × 平铺/嵌套）= 6
+//     ⇒ 51 + 6 = 57（引擎层，无环境依赖，恒执行）
+//   task-135 另增 UI 层 2 条：V-5.12（addToken 守卫）+ V-5.13（关总闸清空）
+//     ⇒ 仅当加载到带 caps 的真身（需 esm-hooks）时执行；无 hooks 时条件跳过
+//     ⇒ 同 task-131 D-0b 口径：**不写死会随环境浮动的值**，用 UI_SKIPPED 吸收
+//   ∴ 裸跑 57；带 hooks 59
+const EXPECTED_ASSERTION_COUNT = 57 + (UI_SKIPPED ? 0 : 2);
 //  分项算式：V-1 5 + V-2 6 + V-3 3 + V-4 17（1 存在性 + 8 码 × 2：触发 + 文案）
 //          + V-5 5 + V-6 3 + V-7 3 + V-8 3 + V-9 3（0/1/2）+ V-10 本条 1 = 49 + 2 = 51
 //  🔴 变更本常量时，上述分项算式必须同步（否则退化为魔法数字）
