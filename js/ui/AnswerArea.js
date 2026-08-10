@@ -248,7 +248,17 @@ export function checkLegality(tokens) {
           prev.type === TokenType.RECIP) {
         return { legal: false, allCardsUsed: false, reason: `${nm}_dangling` };
       }
-      if (prev.type === TokenType.MOD || prev.type === TokenType.FACT ||
+      // 🔴 INPUT-08.1 §3.1：'^' **连按两次**表示开方（a^(1/b)），故须放行「^ 后接 ^」。
+      //   第三次 '^' ⇒ pow_dangling（最多两次，§3.1 + R-b）。log 不参与连按。
+      if (t.type === TokenType.POW && prev.type === TokenType.POW) {
+        // 往前数连续的 '^' 个数：已有 2 个再按 ⇒ 第三次
+        //   （🔴 本函数是自由函数，无 this：须用局部 tokens + 外层索引 i）
+        let run = 0;
+        for (let k = i - 1; k >= 0; k--) {
+          if (tokens[k] && tokens[k].type === TokenType.POW) run++; else break;
+        }
+        if (run >= 2) return { legal: false, allCardsUsed: false, reason: 'pow_dangling' };
+      } else if (prev.type === TokenType.MOD || prev.type === TokenType.FACT ||
           prev.type === TokenType.POW || prev.type === TokenType.LOG) {
         return { legal: false, allCardsUsed: false, reason: `${nm}_operand_not_leaf` };
       }
@@ -312,6 +322,9 @@ export function checkLegality(tokens) {
 // ============ Token → 展示字符串 ============
 export function formatTokens(tokens, cardValues) {
   const parts = [];
+  // 🔴 INPUT-08.1 §3.1：需知前一个 token 才能判「第二个连续 ^」⇒ 显式追踪 prevTok
+  //   （本函数是 for..of，无索引 i；早前误用 i 会 ReferenceError，已修）
+  let prevTok = null;
   for (const t of tokens) {
     if (t.type === TokenType.NUMBER) {
       parts.push(String(cardValues[t.cardIndex]));
@@ -330,11 +343,17 @@ export function formatTokens(tokens, cardValues) {
     } else if (t.type === TokenType.POW) {
       // 🔴 INPUT-08 R-12 同构：屏显用 ^，与引擎分步 op 映射的 '^' 一致
       //   （引擎内部枚举名 'pow' 不得上屏）
-      parts.push('^');
+      // 🔴 INPUT-08.1 §3.1：第二个连续 '^' 表示开方，屏显立即改为 a^(1/ ——
+      //   用即时反馈替代教学（R-a：连按两次可发现性低）。
+      parts.push(prevTok && prevTok.type === TokenType.POW ? '(1/' : '^');
     } else if (t.type === TokenType.LOG) {
-      // 🔴 对数屏显为 log_，与引擎分步 op 映射的 'log' 一致
-      parts.push('log_');
+      // 🔴 INPUT-08.1 §2.1：屏显须为 `log_a b`（与引擎 render 的 `(log_a b)` 一致）。
+      //   token 流是中缀 `a log b`（沿用既有 UI 校验，见 checkLegality 的 LOG 分支），
+      //   故此处把已输出的底数回退、重排为 log_<底> ——「显示为前缀、输入仍中缀」。
+      const base = parts.pop();
+      parts.push(`log_${base === undefined ? '' : base} `);
     }
+    prevTok = t;
   }
   return parts.join('');
 }

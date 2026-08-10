@@ -831,8 +831,19 @@ export default class PageRenderer {
       } else {
         // 🔴 task-126 G-1：文案原为「本局无倒数解法」，自 INPUT-07/08 起高级解已含
         //   阶乘/模/幂/对数，非仅倒数 ⇒ 硬编码「倒数」会误导玩家以为只枚举了 1/x。
-        //   改为与分区标题【高级解法】同词，不再逐一列举符号（避免下次扩符号又漏改）。
-        lines.push('本局无高级解法');
+        // 🔴 INPUT-08.1 §7：不得硬编码任何单一符号名，须随**当前已开启的符号集**自适应
+        //   （判据 V-8：至少两种 caps 组合下文案不同）。符号表由 _caps 现取，
+        //   将来新增能力位只需在此表补一项，不会再出现「扩符号漏改文案」。
+        const capNames = [
+          [this._caps && this._caps.recip, '倒数'],
+          [this._caps && this._caps.fact, '阶乘'],
+          [this._caps && this._caps.mod, '取模'],
+          [this._caps && this._caps.pow, '幂/开方'],
+          [this._caps && this._caps.log, '对数'],
+        ].filter((x) => x[0]).map((x) => x[1]);
+        lines.push(capNames.length > 0
+          ? `本局无高级解法（已开启：${capNames.join('、')}）`
+          : '本局无高级解法（未开启任何高级符号）');
       }
     }
 
