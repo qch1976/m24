@@ -93,7 +93,7 @@ for (const cards of DECKS) {
 // ════════ 三、A 项：_applyAdvancedCalc 是否唯一汇聚入口（静态穷举赋值点）════════
 console.log('\n--- 三、A 项 caps/advancedCalc 赋值点穷举（判定有无绕过路径）---');
 {
-  const src = fs.readFileSync(P('js/ui/PageRenderer.js'), 'utf8');
+  const src = fs.readFileSync(P('js/ui/PageRenderer.js'), 'utf8').replace(/\r\n/g, '\n');
   const lines = src.split('\n');
   const idxApply = lines.findIndex((l) => /_applyAdvancedCalc\(on, caps\)\s*\{/.test(l));
   check('A-0 定位到 _applyAdvancedCalc 定义行', idxApply >= 0, `line ${idxApply + 1}`);
@@ -121,7 +121,7 @@ console.log('\n--- 三、A 项 caps/advancedCalc 赋值点穷举（判定有无�
 // ════════ 四、B 项：DEALING 期间改设置 → 转 DONE 是否补算（真漏洞探测）════════
 console.log('\n--- 四、B 项 发牌动画中改设置的补算路径（真漏洞探测）---');
 {
-  const src = fs.readFileSync(P('js/ui/PageRenderer.js'), 'utf8');
+  const src = fs.readFileSync(P('js/ui/PageRenderer.js'), 'utf8').replace(/\r\n/g, '\n');
   const lines = src.split('\n');
 
   // B-1：DEALING→DONE 转换点定位
@@ -290,7 +290,10 @@ console.log('\n--- 六、D 项 冻结区 6/6（逐文件内容哈希）---');
   let match = 0;
   const bad = [];
   for (const [rel, want] of Object.entries(FROZEN)) {
-    const buf = fs.readFileSync(P(rel));
+    // 🔴 跨平台口径：git 索引内容恒为 LF；Windows autocrlf=true 检出为 CRLF ⇒
+    //   直接对工作树字节算 blob 会 6 个里错 1~6 个（实测 Components.js got=da293309 want=a103f918）。
+    //   与 `git hash-object` 对齐须先 CRLF→LF 归一化。(task-128 服务器 Node24 实测)
+    const buf = Buffer.from(fs.readFileSync(P(rel), 'utf8').replace(/\r\n/g, '\n'), 'utf8');
     // git blob 口径：SHA1("blob <len>\0" + content)
     const h = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${buf.length}\0`), buf])).digest('hex');
     if (h === want) match++; else bad.push(`${rel} got=${h.slice(0, 12)} want=${want.slice(0, 12)}`);
