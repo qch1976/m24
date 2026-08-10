@@ -188,6 +188,12 @@ export default class PageRenderer {
 
   // 高级计算开关变更后的统一同步入口
   _applyAdvancedCalc(on, caps) {
+    // 🔴 task-126 G-5：先快照旧口径，用于末尾判定「是否真的变了」。
+    //   必要性（实测）：:301 面板 hit 路径对【每一次】面板点击都调本方法（含点 pending
+    //   子开关、点空白处），而那些点击并未改变已落库设置 ⇒ 若无条件重算，
+    //   每次点击都会重跑全量枚举（218 §4.1 实测最坏 142ms），且 _recipComputing 抬升
+    //   会让【提示】【答案】按钮反复闪灰（auxEnabled 依赖 !_recipComputing）。
+    const prevSig = JSON.stringify([this._advancedCalc, this._caps || null]);
     this._advancedCalc = !!on;
     // 🔴 task-111：子开关同步（不传则从 _settings 重读）
     // 🔴 INPUT-08 §10.1：pow/log 也须透传（=== true 才开）
@@ -206,6 +212,28 @@ export default class PageRenderer {
     //   本方法是设置变更的唯一汇聚入口（面板 hit 与 onSave 回调两条路径都经它），
     //   故只需在此处挂一次，不会漏分支。
     if (this.answerArea && this.answerArea.setCaps) this.answerArea.setCaps(this._caps);
+
+    // 🔴 task-126 G-5：设置变更后必须【全量重算】，否则 _recipResult 仍是旧 caps 的结果，
+    //   [提示]/[答案] 会展示当前已关闭的符号（乙类实现缺陷）。
+    //   ⚠️ 不能用「按 caps 过滤已算结果集」（架构 218 §4.3 已否决）：caps 收窄会使某解
+    //     后缀全 0 而从 advanced 落入 primary，过滤只能删条目、改不动分区归属 ⇒ 静默破 R-01。
+    //   复用 _computeRecipAsync（218 §4.2）：它自带 _recipComputing 态、异步让帧、
+    //   失败降级，且已对 advancedCalc/caps 做快照防竞态（§1.4），无需新写 loading。
+    //   ⚠️ 两层门禁，缺一不可：
+    //     1) 口径未变则不重算 ⇒ 避免每次面板点击都重跑枚举（见上 prevSig）
+    //     2) 仅牌面就绪时重算：未发牌或发牌动画中重算无意义，且会把 _recipDisplay
+    //        置空导致按钮闪灰（_renderTable 的 auxEnabled 依赖它）
+    const changed = JSON.stringify([this._advancedCalc, this._caps || null]) !== prevSig;
+    if (
+      changed &&
+      this.dealState === DEAL_STATE.DONE &&
+      this.dealtCards &&
+      this.dealtCards.length === 4
+    ) {
+      this._computeRecipAsync(
+        this.dealtCards.map((c) => (c && typeof c.value === 'number' ? c.value : 0)),
+      );
+    }
   }
 
   _ensureBackground() {
@@ -777,7 +805,10 @@ export default class PageRenderer {
         for (const e of d.advanced) lines.push(`${e} = 24`);
         if (d.counts.advanced > d.advanced.length) lines.push(`…等共 ${d.counts.advanced} 条`);
       } else {
-        lines.push('本局无倒数解法');
+        // 🔴 task-126 G-1：文案原为「本局无倒数解法」，自 INPUT-07/08 起高级解已含
+        //   阶乘/模/幂/对数，非仅倒数 ⇒ 硬编码「倒数」会误导玩家以为只枚举了 1/x。
+        //   改为与分区标题【高级解法】同词，不再逐一列举符号（避免下次扩符号又漏改）。
+        lines.push('本局无高级解法');
       }
     }
 
