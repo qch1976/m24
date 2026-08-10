@@ -12,9 +12,13 @@
 //   我首取 a∈1..13 得 3646，与开发 3958 差 312 —— 纯采样域口径差，非不一致。对齐后自取 3958。
 import fs from 'fs';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
 const ROOT = process.argv[2] || process.cwd();
-const P = (r) => path.join(ROOT, r);
+const P = (r) => path.join(ROOT, r);            // 裸路径：给 fs.* 用
+// 🔴 跨平台：import() 需 file:// URL。Windows 下裸 'C:\\...' 被解析为 protocol 'c:'
+//   ⇒ ERR_UNSUPPORTED_ESM_URL_SCHEME；Linux 以 '/' 开头故不暴露（task-128 服务器实测）。
+const PU = (r) => pathToFileURL(P(r)).href;     // file:// URL：给 import() 用
 
 let PASS = 0, FAIL = 0;
 const failed = [];
@@ -23,7 +27,7 @@ function check(name, cond, detail) {
   else { FAIL++; failed.push(name); console.log(`  ✗ ${name}${detail ? ' — ' + detail : ''}`); }
 }
 
-const S = await import(P('js/core/RecipSolver.mjs'));
+const S = await import(PU('js/core/RecipSolver.mjs'));
 const solve = S.solve || (S.default && S.default.solve);
 const entriesOf = (o) => (o ? (o instanceof Map ? [...o.entries()] : Object.entries(o)) : []);
 const dispOf = (v) => (v && (v.display ?? v.disp ?? v.expr ?? v.text)) ?? String(v);
@@ -243,7 +247,7 @@ console.log('\n--- 五、C 项 G-1 文案（剥注释后计数）---');
 // ════════ 五之二、C 项：开发列的「不改」3 处是否成立（行为实证，非只读注释）════════
 console.log('\n--- 五之二、C 项 RecipParser 倒数文案是否仅 recip 路径可触发 ---');
 {
-  const RP_MOD = await import(P('js/core/RecipParser.js'));
+  const RP_MOD = await import(PU('js/core/RecipParser.js'));
   const parse = RP_MOD.parse;
   const N = (v) => ({ type: 'number', value: v });
   const OP = (v) => ({ type: 'operator', value: v });

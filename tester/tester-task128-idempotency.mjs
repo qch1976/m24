@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'url';
 // 判据2：≥20 帧幂等（经理明确要求，我上轮只驱动了 2 帧 ⇒ 未满足）
 import fs from 'fs';
-const src=fs.readFileSync(new URL('../js/ui/PageRenderer.js',import.meta.url).pathname,'utf8');
+const src=fs.readFileSync(fileURLToPath(new URL('../js/ui/PageRenderer.js',import.meta.url)),'utf8');
 const mApply=src.match(/  _applyAdvancedCalc\(on, caps\) \{[\s\S]*?\n  \}\n/);
 const mTrans=src.match(/    if \(this\.dealState === DEAL_STATE\.DEALING\) \{\n      const totalMs[\s\S]*?\n    \}\n/);
 if(!mApply||!mTrans){console.log('❌ 抽取失败');process.exit(2);}

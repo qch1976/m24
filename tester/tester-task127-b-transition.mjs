@@ -1,6 +1,7 @@
+import { fileURLToPath } from 'url';
 // task-127 B 验证：抽【真实】_applyAdvancedCalc + 真实 DEALING→DONE 转换块，逐字挂宿主
 import fs from 'fs';
-const SRC=process.argv[2]||new URL('../js/ui/PageRenderer.js',import.meta.url).pathname;
+const SRC=process.argv[2]||fileURLToPath(new URL('../js/ui/PageRenderer.js',import.meta.url));
 const src=fs.readFileSync(SRC,'utf8');
 const mApply=src.match(/  _applyAdvancedCalc\(on, caps\) \{[\s\S]*?\n  \}\n/);
 if(!mApply){console.log('❌ 未抽到 _applyAdvancedCalc');process.exit(2);}
