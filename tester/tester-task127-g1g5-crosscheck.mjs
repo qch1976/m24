@@ -21,6 +21,9 @@ const P = (r) => path.join(ROOT, r);            // 裸路径：给 fs.* 用
 const PU = (r) => pathToFileURL(P(r)).href;     // file:// URL：给 import() 用
 
 let PASS = 0, FAIL = 0;
+// 🔴 task-131：条件断言（D-0b，仅磁盘为 CRLF 时执行）使断言总数随平台浮动。
+//   此标志让末尾的 EXPECTED_ASSERTION_COUNT 能随场景变，而不靠改数字充闭合。
+let SKIPPED_CONDITIONAL = false;
 const failed = [];
 function check(name, cond, detail) {
   if (cond) { PASS++; console.log(`  ✓ ${name}${detail ? ' — ' + detail : ''}`); }
@@ -294,17 +297,37 @@ console.log('\n--- 六、D 项 冻结区 6/6（逐文件内容哈希）---');
   //     「脚本内忘归一化」（可控/可注释/可自证）转移到「.git/config」（脚本外/静默生效）。
   //   故此处固定用归一化自算，口径不依赖任何 git 配置。下面这条断言自证该不变性：
   {
-    const raw = fs.readFileSync(P('js/ui/Components.js'), 'utf8');
-    const norm = raw.replace(/\r\n/g, '\n');
-    const blobOf = (t) => {
-      const b = Buffer.from(t, 'utf8');
-      return crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${b.length}\0`), b])).digest('hex');
-    };
-    // 人为构造 CRLF 版本，验证归一化后哈希不随行尾变化（口径先自验，再下结论）
-    const crlf = norm.replace(/\n/g, '\r\n');
-    check('D-0 🔴 口径自证：归一化自算 blob 不随行尾(CRLF/LF)变化',
-      blobOf(norm) === blobOf(crlf.replace(/\r\n/g, '\n')),
-      `norm=${blobOf(norm).slice(0, 12)} crlf归一化后=${blobOf(crlf.replace(/\r\n/g, '\n')).slice(0, 12)}`);
+    // 🔴 task-131：原 D-0 为**恒真断言**（Manager 已裁定无效）——它算的是
+    //   `blobOf(norm)` vs `blobOf(norm.replace(\n→\r\n).replace(\r\n→\n))`，内层两次替换
+    //   **互为逆运算** ⇒ 恒等回 norm ⇒ 两侧同一个值，对 LF/CRLF/混合/孤立CR/连续CR
+    //   五种输入均恒 true。注入证明（task-128）：js/ 全 42 文件转 CRLF + 去 D-1 归一化
+    //   （= 口径真漂移）⇒ D-0 仍绿、D-1 判红 6/6，49/1 FAIL ⇒ D-0 零贡献。
+    // 🔴 禁用【自造再自消】恒等式（x.replace(a→b).replace(b→a)）充当自证。
+    // 改正：从**磁盘真实内容**出发，走 D-1 同一条取值路径，与基线对账。
+    const REL = 'js/ui/Components.js';
+    const rawB = fs.readFileSync(P(REL));                       // 原字节，不经任何处理
+    const isCRLF = rawB.includes(Buffer.from('\r\n', 'utf8'));  // 磁盘当前行尾形态
+    const normB = Buffer.from(rawB.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+    const blobOfBuf = (b) =>
+      crypto.createHash('sha1')
+        .update(Buffer.concat([Buffer.from(`blob ${b.length}\0`), b])).digest('hex');
+
+    // D-0：归一化路径必须算出基线值。去掉 D-1 归一化（口径漂移）时本条会跟着判红。
+    check('D-0 🔴 口径自证：归一化自算 blob == 基线（从磁盘真实内容取值）',
+      blobOfBuf(normB) === FROZEN[REL],
+      `磁盘isCRLF=${isCRLF} 归一化=${blobOfBuf(normB).slice(0, 12)} 基线=${FROZEN[REL].slice(0, 12)}`);
+
+    // D-0b：仅当磁盘确为 CRLF 时才断言「不归一化必 ≠ 基线」。
+    // 🔴 isCRLF 存在性前置不可省：LF 树上未归一化值恒等于基线，该分支会变成
+    //   又一条恒真断言（用一条恒真替换另一条恒真）——即本条上一版所踩的坑。
+    if (isCRLF) {
+      check('D-0b 🔴 CRLF 场景确有区分度：未归一化值 ≠ 基线',
+        blobOfBuf(rawB) !== FROZEN[REL],
+        `未归一化=${blobOfBuf(rawB).slice(0, 12)} 基线=${FROZEN[REL].slice(0, 12)}`);
+    } else {
+      SKIPPED_CONDITIONAL = true;
+      console.log('    – D-0b 跳过：磁盘为 LF，该场景无区分度（零正例，立了就是恒真摆设）');
+    }
   }
   let match = 0;
   const bad = [];
@@ -331,7 +354,22 @@ console.log('\n--- 七、根目录 *.mjs 约束 ---');
 
 // ════════ 断言总数自断言（全仓 85 支中仅 8 支有，本支必须有）════════
 console.log('\n--- 断言总数自断言 ---');
-const EXPECTED_ASSERTION_COUNT = 50;   // 🔴 Tester 复核补 B-10（误触方向）+ B-11（DEALING 期多次改设置幂等）⇒ 47→49   // 3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 2(D) + 1(E) = 47
+const EXPECTED_ASSERTION_COUNT = 50 + (SKIPPED_CONDITIONAL ? 0 : 1);
+// 🔴 task-131 口径修正：本常量**随场景浮动**，因 D-0b 是条件断言（仅磁盘为 CRLF 时执行）。
+//   实测：LF 树 = 50（D-0b 跳过）｜CRLF 树 = 51（D-0b 执行）。
+//   🔴 若写死为 50，则开发服务器（Windows/CRLF）上必判红 51≠50；写死 51 则 Linux 必判红。
+//   按 Manager 规则「不得为闭合去调数字」，此处不改常量而是**让期望值随条件成立与否而变**。
+//   与「Windows 40/3 vs Linux 49/0」同类：单平台假设会在另一平台造假红。
+//
+// 分项算式：3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 1(E)
+//   + D 项 3（D-0 / D-1 / D-2，固定）= 48；另 D-0b 仅 CRLF 磁盘下 +1
+//   ⇒ 实跑校准：LF 树 50，CRLF 树 51（差额 2 条已含在上述分组的实际展开中）
+// 沿革：
+//   47 → 49：Tester 补 B-10（误触方向）+ B-11（DEALING 期多次改设置幂等）[task-127]
+//   49 → 50：开发新增 D-0（口径自证）[task-128]；但原写法为**恒真**，Manager 已裁无效
+//   50 → 50/51：task-131 将 D-0 换为【从磁盘真实内容取值】+ 新增条件断言 D-0b
+//     （仅 isCRLF 时）⇒ LF 树 50 / CRLF 树 51
+//   🔴 今后本常量每次变更，本注释的分项算式与沿革必须同步，否则它从自检工具退化为魔法数字。
 //   🔴 task-127 复核修正：B 项 8→10（B-8 拆为 B-8a 存在性前置 + B-8 真实转换块断言，另加 B-9 幂等）
 //   🔴 首版我写 38，实跑得 42 ⇒ 我手算漏了 4 条；补 C-3/C-4/C-5 后为 45。
 //   这条自断言的价值正在于此：它抓住的是「测试作者自己的手算错误」，不是产品缺陷。

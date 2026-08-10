@@ -78,9 +78,25 @@ const hasNosolKey = /['"]?nosol['"]?/.test(answerSrc) || /CTRL_KEYS[\s\S]{0,200}
 check('3.2 CTRL_KEYS 含 nosol', hasNosolKey);
 const nosolRed = /['"]#E74C3C['"]/i.test(answerSrc);
 check('3.3 [无解] 按钮红色 #E74C3C', nosolRed);
-// 每按钮宽度 82.75 = (361-3*10)/4
-const perBtn = (361 - 3 * 10) / 4;
-check('3.4 每按钮宽度 = (361-30)/4 = 82.75', Math.abs(perBtn - 82.75) < 0.01, `计算值=${perBtn}`);
+// 🔴 task-131 修正：原 3.4 为【纯字面量自算】假断言 —— `perBtn = (361 - 3*10)/4` 全是硬编码常量，
+//   与 `answerSrc` 零关系，断言 `82.75 ≈ 82.75` 对任意产品值恒真。
+//   注入证明（task-131）：将 `js/ui/AnswerArea.js` 的 ctrlRow.w `361 → 999` ⇒ 原 3.4 **仍绿**（ok=17 fail=0）。
+//   与 D-0 同型：形式上有断言，实质无鉴别力。
+// 改正：从源码取 ctrlRow 真实 w/gap/cols，复刻产品算式（AnswerArea.js:704）：
+//   ctrlW = (w - gap * (cols - 1)) / cols
+{
+  const ctrlBlock = answerSrc.match(/ctrlRow:\s*\{([^}]*)\}/);
+  check('3.4a 存在性前置：从源码抽到 ctrlRow 锚点字段块', !!ctrlBlock,
+    ctrlBlock ? `抽到 ${ctrlBlock[1].trim().slice(0, 48)}…` : '未抽到 ⇒ 下方尺寸断言均不可信');
+  const cw = ctrlBlock ? findNumber(ctrlBlock[1], /w:\s*(\d+(?:\.\d+)?)/) : null;
+  const cgap = ctrlBlock ? findNumber(ctrlBlock[1], /gap:\s*(\d+(?:\.\d+)?)/) : null;
+  const ccols = ctrlBlock ? findNumber(ctrlBlock[1], /cols:\s*(\d+)/) : null;
+  check('3.4b ctrlRow 三字段均取到且值域合法（w>0, gap>=0, cols>=1）',
+    cw > 0 && cgap >= 0 && ccols >= 1, `w=${cw} gap=${cgap} cols=${ccols}`);
+  const perBtn = (cw !== null && cgap !== null && ccols) ? (cw - cgap * (ccols - 1)) / ccols : NaN;
+  check('3.4 每按钮宽 = (w - gap*(cols-1))/cols = 82.75（从源码取值，非硬编码）',
+    Math.abs(perBtn - 82.75) < 0.01, `w=${cw} gap=${cgap} cols=${ccols} ⇒ perBtn=${perBtn}`);
+}
 
 // -------- 4) 设置面板 5 slot 占位 (SettingsPanel) --------
 console.log(`\n[4] SettingsPanel 5 slot 占位 (SLOTS_CONFIG 数组):`);
@@ -102,6 +118,22 @@ check('4.4 SettingsPanel 含 "random" radio', hasRadioRandom);
 console.log(`\n[5] ⚙️ 与顶行不重叠:`);
 const noOverlap = (settingsY + settingsH) <= 60;
 check('5.1 ⚙️.y + ⚙️.h ≤ 60 (无 y 重叠)', noOverlap, `实测 ⚙️.bottom = ${settingsY + settingsH}`);
+
+// ════════ 断言总数自断言（task-131 补齐）════════
+// 价值：本项目已三次靠它拓到真问题（测试手算漏 4 条／开发 +2 未同步／
+//   Windows CRLF 致整段断言静默退场 `40+3=43≠49`）。
+// 🔴 `ok + fail != EXPECTED` 即有断言静默退场或手算错，不得为闭合而调数字。
+const EXPECTED_ASSERTION_COUNT = 19;
+//   分项算式：1) ⚙️ 锚点 4 + 2) 顶行三按钮 4 + 3) ctrlRow 6（3.1/3.2/3.3 + 3.4a/3.4b/3.4）
+//                + 4) 面板 slot 4 + 5) 无重叠 1 = 19
+//   沿革：task-131 前为 17；原 3.4（纯字面量自算、恒真）拆为 3.4a 存在性前置
+//                + 3.4b 值域 + 3.4 真判据 ⇒ 17 + 2 = 19
+console.log('\n--- 断言总数自断言 ---');
+// 注：check() 内部先自增再记账，故本条执行前 `ok+fail` = 前面所有断言数（不含本条）。
+const _before = ok + fail;
+check(`断言总数 = ${EXPECTED_ASSERTION_COUNT}（防断言静默退场）`,
+  _before === EXPECTED_ASSERTION_COUNT,
+  `实测前置断言数=${_before} 期望=${EXPECTED_ASSERTION_COUNT}`);
 
 console.log(`\n[tester-input05-layout] R-01: ok=${ok} fail=${fail}`);
 console.log(fail === 0 ? 'PASS' : 'FAIL');
