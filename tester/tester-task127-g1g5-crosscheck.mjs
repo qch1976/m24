@@ -234,7 +234,7 @@ console.log('\n--- 五、C 项 G-1 文案（剥注释后计数）---');
   let oldLive = 0, newLive = 0, oldAny = 0;
   const oldHit = [];
   for (const f of files) {
-    const txt = fs.readFileSync(f, 'utf8');
+    const txt = fs.readFileSync(f, 'utf8').replace(/\r\n/g, '\n');  // 🔴 CRLF 归一化：下方 split('\n') + 行锚正则依赖之
     if (txt.includes('本局无倒数解法')) oldAny++;
     const live = txt.split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
     if (live.includes('本局无倒数解法')) { oldLive++; oldHit.push(path.relative(ROOT, f)); }
@@ -287,6 +287,25 @@ console.log('\n--- 六、D 项 冻结区 6/6（逐文件内容哈希）---');
     'js/utils/Random.js': 'b04dc9f8b6c532e424cbce8a8e9fce3f008601c8',
   };
   const crypto = await import('crypto');
+  // 🔴 口径声明（task-128 Tester 反证）：本判据【自算 blob + 读入归一化】，**不调 git hash-object**。
+  //   实测同一 CRLF 工作树、同一文件，git hash-object 输出随 core.autocrlf 变：
+  //     未设/false ⇒ da29330901a9（假警报值）｜true/input ⇒ a103f9188e17（基线）
+  //   ⇒ git hash-object 是「受外部可变配置支配」的口径，不比自算安全；风险只是从
+  //     「脚本内忘归一化」（可控/可注释/可自证）转移到「.git/config」（脚本外/静默生效）。
+  //   故此处固定用归一化自算，口径不依赖任何 git 配置。下面这条断言自证该不变性：
+  {
+    const raw = fs.readFileSync(P('js/ui/Components.js'), 'utf8');
+    const norm = raw.replace(/\r\n/g, '\n');
+    const blobOf = (t) => {
+      const b = Buffer.from(t, 'utf8');
+      return crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${b.length}\0`), b])).digest('hex');
+    };
+    // 人为构造 CRLF 版本，验证归一化后哈希不随行尾变化（口径先自验，再下结论）
+    const crlf = norm.replace(/\n/g, '\r\n');
+    check('D-0 🔴 口径自证：归一化自算 blob 不随行尾(CRLF/LF)变化',
+      blobOf(norm) === blobOf(crlf.replace(/\r\n/g, '\n')),
+      `norm=${blobOf(norm).slice(0, 12)} crlf归一化后=${blobOf(crlf.replace(/\r\n/g, '\n')).slice(0, 12)}`);
+  }
   let match = 0;
   const bad = [];
   for (const [rel, want] of Object.entries(FROZEN)) {
@@ -298,7 +317,7 @@ console.log('\n--- 六、D 项 冻结区 6/6（逐文件内容哈希）---');
     const h = crypto.createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${buf.length}\0`), buf])).digest('hex');
     if (h === want) match++; else bad.push(`${rel} got=${h.slice(0, 12)} want=${want.slice(0, 12)}`);
   }
-  check('D-1 冻结区 6/6 与 5b80efa blob 逐字节一致', match === 6, bad.length ? bad.join(' ; ') : '6/6 MATCH（git hash-object 口径）');
+  check('D-1 冻结区 6/6 与 5b80efa blob 逐字节一致', match === 6, bad.length ? bad.join(' ; ') : '6/6 MATCH（归一化自算 blob 口径，不依赖 core.autocrlf）');
   check('D-2 冻结清单条目数 == 6（防清单被裁剪致假绿）', Object.keys(FROZEN).length === 6, `${Object.keys(FROZEN).length} 条`);
 }
 
@@ -312,7 +331,7 @@ console.log('\n--- 七、根目录 *.mjs 约束 ---');
 
 // ════════ 断言总数自断言（全仓 85 支中仅 8 支有，本支必须有）════════
 console.log('\n--- 断言总数自断言 ---');
-const EXPECTED_ASSERTION_COUNT = 49;   // 🔴 Tester 复核补 B-10（误触方向）+ B-11（DEALING 期多次改设置幂等）⇒ 47→49   // 3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 2(D) + 1(E) = 47
+const EXPECTED_ASSERTION_COUNT = 50;   // 🔴 Tester 复核补 B-10（误触方向）+ B-11（DEALING 期多次改设置幂等）⇒ 47→49   // 3(W) + 20(V2-1..5 ×4组) + 1(V2-0) + 4(A) + 10(B) + 3(C) + 3(C之二) + 2(D) + 1(E) = 47
 //   🔴 task-127 复核修正：B 项 8→10（B-8 拆为 B-8a 存在性前置 + B-8 真实转换块断言，另加 B-9 幂等）
 //   🔴 首版我写 38，实跑得 42 ⇒ 我手算漏了 4 条；补 C-3/C-4/C-5 后为 45。
 //   这条自断言的价值正在于此：它抓住的是「测试作者自己的手算错误」，不是产品缺陷。
