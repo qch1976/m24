@@ -102,6 +102,18 @@ console.log('\n=== R4: INPUT-04 bugfix v1 回归（toCanonicalKeyV2 硬约束）
 }
 
 console.log('\n=== R5: 保护清单 6 文件 sha256 @ fc3f1cc（独立计算） ===');
+// 🔴 task-131 第 2 批（经理裁定：方案 1 + 存在性前置）—— 修跨平台判据缺陷
+// 【背景】原 R5 直读工作树字节算 sha256，Windows 端 `core.autocrlf=true` 检出为 CRLF
+//   ⇒ 同一入库内容两平台 sha256 必然不同 ⇒ Windows 恒判红（实测：Components.js
+//   Linux 51635ff6…判绿 / Windows a1b6af30…判红，而转 LF 后恰为 51635ff6…）。
+//   已逐层排除为**判据不可移植**，非冻结区违规（blob 三方一致 = AGENTS 冻结表值，
+//   git status 干净），也非本轮引入（原版在 Windows 同样红）。
+// 【口径声明】本断言统一采用：**读入后先 CRLF→LF 归一化，再算 sha256**。
+//   🔴 不用 `git hash-object` 口径：经理实测它**受 `.git/config` 的 `core.autocrlf` 支配**
+//   （false ⇒ c30dea8a…；true/input ⇒ 422c2b7a…），并非恒定口径，只会把风险从「脚本忘
+//   归一化」搬到「配置静默生效」，更难发现。本写法**不依赖任何 git 配置**。
+// 【不会掩盖异常】归一化本身会掩盖「文件真被写成 CRLF」，故配对 R5b 抓该情形。
+const CRLF_FILES = [];   // 🔴 供 R5b 与 D-0 基数使用（跨 block 可见）
 {
   const baseline = {
     'js/ui/CardRenderer.js':   '1392807b1eb84ec93432210a2ef8daac86fe98c3a9f6768b9a763c80b96558bb',
@@ -112,8 +124,32 @@ console.log('\n=== R5: 保护清单 6 文件 sha256 @ fc3f1cc（独立计算） 
     'js/utils/Random.js':      'd31a39afe50443dfdf166a9e0ff6880fe41cf5369f15136eb4623d963321dbad',
   };
   for (const [file, expected] of Object.entries(baseline)) {
-    const actual = createHash('sha256').update(fs.readFileSync(file)).digest('hex');
-    check(`R5 ${file}`, actual === expected, `expected=${expected.slice(0,16)}... actual=${actual.slice(0,16)}...`);
+    const raw = fs.readFileSync(file);
+    const rawHash = createHash('sha256').update(raw).digest('hex');
+    // CRLF→LF 归一化（仅影响本处取值，不写回文件）
+    const normalized = Buffer.from(raw.toString('utf8').split('\r\n').join('\n'), 'utf8');
+    const actual = createHash('sha256').update(normalized).digest('hex');
+    const isCRLF = normalized.length !== raw.length;
+    if (isCRLF) CRLF_FILES.push({ file, rawHash, expected });
+    check(`R5 ${file}`, actual === expected,
+          `expected=${expected.slice(0,16)}... actual=${actual.slice(0,16)}...` +
+          (isCRLF ? ` [已归一化 CRLF→LF，未归一化值=${rawHash.slice(0,16)}...]` : ' [本就是 LF]'));
+  }
+}
+
+// 🔴 R5b（经理裁定新增）：归一化会掩盖「文件真被写成 CRLF」，此条专抓该情形。
+// 口径：**仅当实测到 CRLF 时**断言「未归一化值 != 基线」—— 即确认该文件确实是
+// 因换行符而非内容差异导致 raw 不匹配（若未归一化值居然 == 基线，说明基线本身是
+// CRLF 口径录的，属口径污染，必顶出）。
+// ⚠ 本条为**条件断言** ⇒ 断言总数随平台浮动 ⇒ D-0 基数必用可推导式，禁写死。
+const CRLF_SKIPPED = CRLF_FILES.length === 0;
+if (CRLF_SKIPPED) {
+  console.log(`  ⏸ R5b 未执行：本平台检出均为 LF（6 文件无 CRLF）⇒ 无需验证归一化是否掩盖异常`);
+} else {
+  for (const { file, rawHash, expected } of CRLF_FILES) {
+    check(`R5b ${file} 未归一化值 != 基线（证实差异仅来自换行符）`,
+          rawHash !== expected,
+          `rawHash=${rawHash.slice(0,16)}... baseline=${expected.slice(0,16)}...`);
   }
 }
 
@@ -132,8 +168,13 @@ console.log('\n=========================================');
 //   · :44  R1.4  2 组无解牌型               ⇒ +2（占 1 处源码）
 //   · :114 R5    6 个冻结区文件 sha256      ⇒ +6（占 1 处源码）
 // ⇒ 21 - 3（三处循环源码行）+ 5 + 2 + 6 = 31。不写裸 31，用可推导算式：
+// 🔴 R5b 为**条件断言**（仅 CRLF 平台执行，每个 CRLF 文件 1 条）⇒ 总数随平台浮动：
+//   · Linux（均 LF）    ⇒ CRLF_FILES.length=0 ⇒ 31 + 0 = 31
+//   · Windows（autocrlf）⇒ CRLF_FILES.length=6 ⇒ 31 + 6 = 37
+//   ⇒ 用 CRLF_FILES.length 实测值参与计算，**禁写死任何平台的裸数字**。
 const LOOP_R1_3 = 5, LOOP_R1_4 = 2, LOOP_R5 = 6;   // 各循环实际迭代次数（与上方字面量一致）
-const EXPECTED_ASSERTION_COUNT = 18 + LOOP_R1_3 + LOOP_R1_4 + LOOP_R5;
+const EXPECTED_ASSERTION_COUNT =
+  18 + LOOP_R1_3 + LOOP_R1_4 + LOOP_R5 + CRLF_FILES.length;
 const _total = PASS + FAIL;
 if (_total !== EXPECTED_ASSERTION_COUNT) {
   console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
