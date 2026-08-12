@@ -120,13 +120,35 @@ console.log('\n=== T-10 hasSolution 与 findSolutions 一致 ===');
 }
 
 console.log('\n=== 硬约束（前轮回归 + 新增） ===');
-// Hard1: a÷(b×c) ≠ (a÷b)÷c
+// 🔴 Hard1（task-131 第 2 批，经理批准改正期望值）：
+//   原断言为 `k1 !== k2`，断言名写「8÷(3×3) != (8÷3)÷3」—— **期望值写反了**。
+//   手算：8/(3×3) = 8/9；(8/3)/3 = 8/3 × 1/3 = 8/9  ⇒ **两式等值**。
+//   toCanonicalKeyV2 的职责就是把等值式归并为同一键 ⇒ k1 === k2 是**正确行为**，
+//   原断言把正确行为当成缺陷（极性倒置，AGENTS 第四类）。
+//   对照：下方 Hard2（5-3 vs 3-5）两式**真不等值**，故它要求键不同是对的 ⇒ 两条并存才能双向锁住归并语义。
 {
-  const t1 = bin('/', num(8), bin('*', num(3), num(3)));  // 8/(3×3)
-  const t2 = bin('/', bin('/', num(8), num(3)), num(3));  // (8/3)/3
+  const t1 = bin('/', num(8), bin('*', num(3), num(3)));  // 8/(3×3) = 8/9
+  const t2 = bin('/', bin('/', num(8), num(3)), num(3));  // (8/3)/3  = 8/9
   const k1 = toCanonicalKeyV2(t1);
   const k2 = toCanonicalKeyV2(t2);
-  check(`Hard1 8÷(3×3) != (8÷3)÷3`, k1 !== k2, `k1=${k1} k2=${k2}`);
+  check(`Hard1 8÷(3×3) == (8÷3)÷3（等值式须归并同键）`, k1 === k2, `k1=${k1} k2=${k2}`);
+}
+// 🔴 Hard1b（task-131 第 2 批新增，补 Hard1 的鉴别力缺口）：
+//   Hard1 两式因子多重集为 分子[8]/分母[3,3] —— 分母两项**都是 3**，
+//   ⇒ 因子排序归并（cNum.sort()/cDen.sort()）改不改都同键 ⇒ Hard1 对排序类变异**天然不敏感**。
+//   实测三组变异均打不中 Hard1：
+//     · 删 cNum.sort()/cDen.sort()      ⇒ Hard1 仍绿（[3,3] 排序不变）
+//     · '/' 右子不翻转到分母            ⇒ 判红的是 T-03/T-06，不是 Hard1
+//     · 关掉扁平化（唯一能分离二式）  ⇒ _flattenMulDivFactors ↔ _toCanonicalKeyV2Raw 无限互递归
+//                                          RangeError 爆栈 ⇒ **属崩溃非判红，不可用作自证**
+//   ⇒ 故补一条**异值因子**用例：分母为 [2,5] 而非 [3,3]，使排序归并成为必要条件。
+//     已自证：删 sort ⇒ Hard1b 精准判红（k1=(*/||n2/1|n5/1) vs k2=(*/||n5/1|n2/1)）且无崩溃。
+{
+  const t1 = bin('/', num(1), bin('*', num(2), num(5)));  // 1/(2×5) = 1/10
+  const t2 = bin('/', bin('/', num(1), num(5)), num(2));  // (1/5)/2 = 1/10  ← 分母出现顺序 5,2（与上式 2,5 相反）
+  const k1 = toCanonicalKeyV2(t1);
+  const k2 = toCanonicalKeyV2(t2);
+  check(`Hard1b 1÷(2×5) == (1÷5)÷2（异值分母，须靠排序归并才同键）`, k1 === k2, `k1=${k1} k2=${k2}`);
 }
 // Hard2: a-b ≠ b-a
 {
@@ -164,6 +186,18 @@ for (const d of decks2) {
 }
 
 console.log('\n=========================================');
+// 🔴 D-0（task-131）：断言总数自断言 —— 防「断言静默丢失/未执行而全绿」
+// 基数**实测取值**：本支无循环内断言，源码 `check(` 处数 == 实跑数。
+// task-131 第 2 批后：原 18 条 + 新增 Hard1b（补 Hard1 鉴别力缺口）= 19 条。
+// 已自证：短路掉任意 1 条断言 ⇒ D-0 判红（实测总数=18 期望=19）。
+const EXPECTED_ASSERTION_COUNT = 19;
+const _total = PASS + FAIL;
+if (_total !== EXPECTED_ASSERTION_COUNT) {
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  FAIL++;
+} else {
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+}
 console.log(`Bug5.1 TOTAL: pass=${PASS} fail=${FAIL}`);
 console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅' : 'FAIL ❌'}`);
 console.log('=========================================');

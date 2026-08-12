@@ -77,8 +77,10 @@ console.log('\n=== R4: INPUT-04 bugfix v1 回归（toCanonicalKeyV2 硬约束）
   const num = (n) => ({ op: 'num', value: intToFraction(n), label: String(n) });
   const bin = (op, a, b) => ({ op, args: [a, b] });
   // Bug 1 硬约束（v1 已过）
-  check('R4.1 a÷(b×c) ≠ (a÷b)÷c', 
-    toCanonicalKeyV2(bin('/', num(8), bin('*', num(3), num(3)))) !== 
+  // 🔴 R4.1（task-131 第 2 批，经理批准改正期望值）：与 bug5-canonicalize.mjs 的 Hard1 同一命题、同一错。
+  //   8/(3×3) = 8/9 与 (8/3)/3 = 8/9 **等值** ⇒ 归并同键是正确行为，原 `!==` 把正确行为当成缺陷。
+  check('R4.1 a÷(b×c) == (a÷b)÷c（等值式须归并同键）',
+    toCanonicalKeyV2(bin('/', num(8), bin('*', num(3), num(3)))) ===
     toCanonicalKeyV2(bin('/', bin('/', num(8), num(3)), num(3))));
   check('R4.2 a-b ≠ b-a',
     toCanonicalKeyV2(bin('-', num(5), num(3))) !==
@@ -124,6 +126,21 @@ console.log('\n=== R6: [3,3,8,8] pretty 显示（可选观察） ===');
 }
 
 console.log('\n=========================================');
+// 🔴 D-0（task-131）：断言总数自断言 —— 防「断言静默丢失/未执行而全绿」
+// 基数**实测取值，禁数源码**：源码仅 21 处 `check(` 但实跑 31 条 —— 差额全部来自三处循环：
+//   · :39  R1.3  5 组牌型量（[3,3,8,8] 等）  ⇒ +5（占 1 处源码）
+//   · :44  R1.4  2 组无解牌型               ⇒ +2（占 1 处源码）
+//   · :114 R5    6 个冻结区文件 sha256      ⇒ +6（占 1 处源码）
+// ⇒ 21 - 3（三处循环源码行）+ 5 + 2 + 6 = 31。不写裸 31，用可推导算式：
+const LOOP_R1_3 = 5, LOOP_R1_4 = 2, LOOP_R5 = 6;   // 各循环实际迭代次数（与上方字面量一致）
+const EXPECTED_ASSERTION_COUNT = 18 + LOOP_R1_3 + LOOP_R1_4 + LOOP_R5;
+const _total = PASS + FAIL;
+if (_total !== EXPECTED_ASSERTION_COUNT) {
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  FAIL++;
+} else {
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+}
 console.log(`REGRESSION TOTAL: pass=${PASS} fail=${FAIL}`);
 console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅' : 'FAIL ❌'}`);
 console.log('=========================================');
