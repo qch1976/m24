@@ -7,7 +7,7 @@ import { solve, buildDisplay, DISPLAY_LIMIT } from '../js/core/RecipSolver.mjs';
 import { mkCounter } from './tester-input06-lib.mjs';
 import fs from 'node:fs';
 
-const { ck, done } = mkCounter('R-05 / R-05.1');
+const { ck, done, st } = mkCounter('R-05 / R-05.1');   // st: D-0 自断言需读 st.pass+st.fail（方案 B，不动共享 harness）
 console.log('tester-input06-r05.mjs  @ ' + new Date().toISOString());
 console.log('node ' + process.version + '  platform=' + process.platform + '/' + process.arch);
 
@@ -180,6 +180,37 @@ console.log('   · 置灰→恢复的时机（枚举完成瞬间按钮是否即�
 console.log('   · 15/14 键切换后的真机点击热区准确性');
 console.log('  原因：m24 为微信小游戏，miniprogram-automator 仅支持小程序，无可用自动化 SDK。');
 console.log('  Tester 交互层覆盖度 = 0%（与 TOOLS.md 能力矩阵一致）。');
+
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类，方案 (B)）──
+// 目的：捕获「断言静默退场」—— 断言不再执行时，仅看 fail=0 无法察觉。
+// 🔴 本支与其余 6 支写法的差异原因（经理已批方案 (B)）：
+//     本支不自建计数器，而是用共享 harness `tester-input06-lib.mjs:207 mkCounter()`。
+//     该 harness 被 6 支共用（r04/r05/r08/r10/r11/regression），其中 r04/r11 属 B 类崩溃支、
+//     根因未定；改 `done(expected)` 会连带扰动它们的崩溃点，超出本批 8 支授权范围。
+//     故此处不动 harness，改用 mkCounter 已导出的 `st` 自行计算（st.pass + st.fail）。
+// 🔴 基数必可推导、禁裸数字；只算【业务断言】不含 D-0 自己；D-0 计入 pass ⇒ `pass=N+1`。
+const _slideCond = /SLIDE_MS\s*=\s*(\d+)/.test(aa) ? 2 : 0;
+const EXPECTED = {
+  perf: 5,          // :57 :58 :68 :87 :88 —— P95/MAX/降速容忘 + 定向压测 2 条
+  slideConst: 1,    // :101 SLIDE_MS 导出存在
+  slideRange: _slideCond,  // :104 :105 条件断言（仅当 SLIDE_MS 成功解析出数值时执行）
+  easing: 4,        // :108 :109 :113 :116 —— easeOutCubic 形态/无 overshoot/clamp
+  async: 4,         // :119 :120 :121 :123 —— _computeRecipAsync 让出帧 + try/finally
+  inputGate: 7,     // :126 :127 :129 :130 :131 :132 + :136 —— 输入区不被枚举锁死
+  recipFlag: 2,     // :140 :144 —— _recipComputing 缺陷检查 + 消费方存在
+  layout: 2,        // :165 :167 —— layoutFor 统一入口 + setAdvancedCalc 幂等
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+// 存在性前置：若 SLIDE_MS 未解析出数值，:104/:105 会静默少跑 ⇒ 先报这个
+if (_slideCond === 0) {
+  ck('D-0 存在性前置：SLIDE_MS 可解析出数值（否则 :104/:105 静默退场）', false,
+     '🔴 未解析到 SLIDE_MS 数值');
+}
+ck(`D-0 断言总数自断言 — 实测总数=${st.pass + st.fail} 期望=${EXPECTED_ASSERTION_COUNT}`,
+   st.pass + st.fail === EXPECTED_ASSERTION_COUNT,
+   st.pass + st.fail === EXPECTED_ASSERTION_COUNT ? '' :
+     `分族期望=${JSON.stringify(EXPECTED)} ⇒ 有断言静默退场或新增未同步 EXPECTED`);
 
 const ok = done();
 process.exit(ok ? 0 : 1);

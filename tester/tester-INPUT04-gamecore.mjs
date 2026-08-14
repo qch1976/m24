@@ -14,7 +14,7 @@
 // 运行：node tester-INPUT04-gamecore.mjs
 
 import GameCore from '../js/core/GameCore.mjs';
-import Solver from '../js/core/Solver.mjs';
+import Solver, { findSolutionsWithAST, chooseCanonicalSolution } from '../js/core/Solver.mjs';   // task-131: 5-setEq 改同层比对需走与产品一致的链路
 
 const decks = [
   [3, 3, 8, 8],
@@ -104,16 +104,31 @@ for (const d of decks) {
   rec('4-未发牌返回 null', s1 === null, `s1=${s1}`);
 }
 
-// ---- Case 5: getAllSolutions 与 Solver.findSolutions 集合相等 ----
+// ---- Case 5: getAllSolutions 与产品内部解集【同层】相等 ----
+// 🔴 task-131 第 3 批改写（经理已批）。原判据拿 `gc.getAllSolutions()` 直接比
+//     `Solver.findSolutions(d)`，二者【不同层】，入库即 20/20 恒红。实测取值（deck [3,3,8,8]）：
+//       gc.getAllSolutions()  = ["8÷(3-8÷3)"]        ← 展示层（formatExprPretty，含 ÷ ×）
+//       Solver.findSolutions  = ["(8/(3-(8/3)))"]      ← 内部式
+//     ⇒ 字符串永不相等，与产品对错无关，是【判据取值层错】。
+// 🔴 治法：把两侧拉到同一层。产品未对外暴露内部式（`_cachedAllSolutions` 只存展示层，
+//     见 js/core/GameCore.js:218 `prettyList`），故在测试侧对【同一数据源】施以【同一变换】：
+//       expected = findSolutionsWithAST(d) → Solver.formatExprPretty(ast) → sort
+//     这正是 GameCore.js:206+218 的同一条链路，故为同层比对。
+// 🔴 【禁】在判据里对 gc 输出做 `÷→/` `×→*` 字符替换来“拉平”：
+//     那是绕过层差而非消除层差，一旦 formatExprPretty 改变括号/空格策略就会假绿。
 for (const d of decks) {
   const gc = new GameCore();
   gc.recordSolutions(mkCards(d));
   const all = gc.getAllSolutions();
-  const solverAll = Solver.findSolutions(d);
+  // 同层期望值：走与产品 _computeHintCache 完全一致的链路
+  const expected = findSolutionsWithAST(d).map((s) => Solver.formatExprPretty(s.ast)).sort();
   const setA = new Set(all);
-  const setB = new Set(solverAll);
+  const setB = new Set(expected);
   const eq = setA.size === setB.size && [...setA].every(x => setB.has(x));
-  rec(`5-setEq [${d.join(',')}]`, eq, `gc.n=${all.length}, solver.n=${solverAll.length}`);
+  // 存在性前置：若两侧均为空集，上面 eq 会恒真 ⇒ 先断言本 deck 确实有解
+  const nonEmpty = expected.length > 0;
+  rec(`5-setEq [${d.join(',')}]`, eq && nonEmpty,
+    `gc.n=${all.length}, expected.n=${expected.length}, setEq=${eq}, nonEmpty=${nonEmpty}`);
 }
 
 // ---- Case 6: getAllSolutions 返回副本 ----
@@ -140,19 +155,38 @@ for (const d of decks) {
   rec('7-resetGame-clears-cache', cleared, `s=${s}, all.len=${all.length}`);
 }
 
-// ---- Case 8: step3 拼接 = getAllSolutions()[0]（字典序最小） ----
-function step3Reassemble(s3) {
-  const back = (s) => s.replace(/×/g, '*').replace(/÷/g, '/');
-  return `(${back(s3.lhs)}${back(s3.op)}${back(s3.rhs)})`;
-}
+// ---- Case 8: step3 拼接 = 字典序最小解（【同层】展示层 vs 展示层）----
+// 🔴 task-131 第 3 批改写（经理已批）。原判据把 step3（展示层，含 ÷ ×）用
+//     `back()` 做 `×→*` `÷→/` 字符替换后自行加括号，再去比 getAllSolutions()[0]（展示层），
+//     两侧终究仍不同层，入库即 20/20 恒红。实测取值：
+//       reassembled = '(8/(3-8/3))'   ← 被替换回内部式、且括号策略自拟
+//       all[0]      = '8÷(3-8÷3)'     ← formatExprPretty 展示层
+//     ⇒ 即使做了字符替换也对不上，因为括号/空格策略也不同。
+// 🔴 治法：【彻底删除 back() 字符替换】，两侧都留在展示层比：
+//     step3 的 lhs/op/rhs 本身已是展示层，而【字典序最小解】同样取 all[0]（展示层）。
+//     但 step3 只是【最后一步】，不含完整式的嵌套结构，故不能直接拼成完整式去比；
+//     改为断言产品真正保证的契约：① step3 的运算结果 = 24；
+//     ② step3 的 op 必为字典序最小解 all[0] 的【顶层运算符】（同层：都取展示层符号）。
+// 🔴 顶层运算符从 AST 取（chooseCanonicalSolution 选中的那梵），而非靠字符串扫括号：
+//     判据取值层与被判事实同层 —— 判 AST 就读 AST。
+const _OPMAP = { '+': '+', '-': '-', '*': '×', '/': '÷' };
 for (const d of decks) {
   const gc = new GameCore();
   gc.recordSolutions(mkCards(d));
-  const all = gc.getAllSolutions().sort(); // 已排序但双保险
+  const all = gc.getAllSolutions().sort(); // 展示层，已排序（双保险）
   const s3 = gc.getHintStep(3);
-  const reassembled = step3Reassemble(s3);
-  rec(`8-step3=lexmin [${d.join(',')}]`, reassembled === all[0],
-    `reassembled='${reassembled}' vs all[0]='${all[0]}'`);
+  // 同层期望：走与产品 _computeHintCache 同一链路取得顶层运算符
+  const sols = findSolutionsWithAST(d);
+  const chosen = chooseCanonicalSolution(sols, d);
+  const topOpDisplay = chosen && chosen.ast ? (_OPMAP[chosen.ast.op] || chosen.ast.op) : null;
+  const opMatch = !!s3 && s3.op === topOpDisplay;
+  // step3 结果必为 24（展示层文本包含 24，或 result 字段为 24）
+  const resIs24 = !!s3 && (String(s3.result) === '24' || /(^|[^0-9])24([^0-9]|$)/.test(String(s3.result)));
+  // 存在性前置：本 deck 必须真有解且 step3 存在，否则上面两条会恒真/恒假
+  const pre = all.length > 0 && !!s3 && !!topOpDisplay;
+  rec(`8-step3=lexmin [${d.join(',')}]`, pre && opMatch && resIs24,
+    `pre=${pre}, s3.op='${s3 ? s3.op : null}' vs topOp='${topOpDisplay}', ` +
+    `s3.result='${s3 ? s3.result : null}', all[0]='${all[0]}'`);
 }
 
 console.log('==========');

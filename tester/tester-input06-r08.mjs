@@ -5,7 +5,7 @@ import { parse, evalAst, checkUserAnswer, ERR } from '../js/core/RecipParser.mjs
 import { countRecip } from '../js/core/RecipSolver.mjs';
 import { mkCounter, Q, qs, is24, evalQ, parseExpr } from './tester-input06-lib.mjs';
 
-const { ck, done } = mkCounter('R-08');
+const { ck, done, st } = mkCounter('R-08');   // st: D-0 自断言需读 st.pass+st.fail（方案 B，不动共享 harness）
 console.log('tester-input06-r08.mjs  @ ' + new Date().toISOString());
 
 // token 构造器（沿用 AnswerArea.TokenType 口径）
@@ -217,5 +217,43 @@ console.log('='.repeat(70));
 }
 
 console.log('\n用例计数：合法倒数 3 / 非法拒绝 5 / 冗余括号 4 / 1/1 2 / 开关 2 / 既有约束 8 = 24 组');
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类，方案 (B)）──
+// 目的：捕获「断言静默退场」—— 断言不再执行时，仅看 fail=0 无法察觉。
+// 🔴 与其余 6 支写法差异的原因（经理已批方案 (B)）：
+//     本支用共享 harness `tester-input06-lib.mjs:207 mkCounter()`，不自建计数器。
+//     该 harness 被 6 支共用（r04/r05/r08/r10/r11/regression），其中 r04/r11 属 B 类崩溃支、
+//     根因未定；改 harness 的 done(expected) 会连带扰动它们，超出本批 8 支授权范围。
+//     故改用 mkCounter 已导出的 `st` 自行计算（st.pass + st.fail）。
+// 🔴 基数必可推导、禁裸数字；只算【业务断言】不含 D-0 自己；D-0 计入 pass ⇒ `pass=N+1`。
+// 🔴 C 族含 3 条【条件断言】（:110 :120 :130 的 `if (p.ok)`）：若 parse 退化为失败，
+//     这 3 条会静默少跑。故下方加存在性前置：先断言三个冗余括号用例均 parse 成功，
+//     否则先报前置失败（而不是让 D-0 拿一个“已经变小”的基数去对）。
+// 🔴 前置用例须与 :108/:118/:128 完全同构（token 数组 + cv），不能另写一套：
+//     此前我误用 Q('1/(3)')，Q 实为分数构造器（Q(n,d)）而非表达式解析器，
+//     直接 SyntaxError: Cannot convert 1/(3) to a BigInt。已改为同样的 token 构造。
+const _c1ok = parse([RC(), L(), N(0), R()], [3, 6, 1, 4]).ok;
+const _c2ok = parse([RC(), L(), L(), N(0), R(), R()], [3, 6, 1, 4]).ok;
+const _c3ok = parse([RC(), L(), L(), L(), N(0), R(), R(), R()], [4, 6, 1, 3]).ok;
+const _condC = (_c1ok ? 1 : 0) + (_c2ok ? 1 : 0) + (_c3ok ? 1 : 0);
+const EXPECTED = {
+  A: 7,              // A1~A3 合法倒数完整式（:29-49）
+  B: 10,             // B1~B5 非叶子/悬空倒数拒绝 + 错误码（:63-96）
+  Cstatic: 4,        // C1/C2/C3 parse 通过 3 条（:109 :119 :129）+ C4 完整式（:137）
+  Ccond: _condC,     // :112 :122 :130 条件断言（仅当各自 parse 成功时执行）
+  D: 5,              // D1/D2  1/1 不计 usedRecip + countRecip=0（:151-161）
+  E: 3,              // E1/E2 advancedCalc 开关（:174 起）
+  F: 8,              // F1~F8 既有约束不回退
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+if (_condC !== 3) {
+  ck('D-0 存在性前置：C 族 3 个冗余括号用例均 parse 成功', false,
+     `🔴 实际成功 ${_condC}/3（C1=${_c1ok} C2=${_c2ok} C3=${_c3ok}）⇒ 条件断言静默退场`);
+}
+ck(`D-0 断言总数自断言 — 实测总数=${st.pass + st.fail} 期望=${EXPECTED_ASSERTION_COUNT}`,
+   st.pass + st.fail === EXPECTED_ASSERTION_COUNT,
+   st.pass + st.fail === EXPECTED_ASSERTION_COUNT ? '' :
+     `分族期望=${JSON.stringify(EXPECTED)} ⇒ 有断言静默退场或新增未同步 EXPECTED`);
+
 const ok = done();
 process.exit(ok ? 0 : 1);

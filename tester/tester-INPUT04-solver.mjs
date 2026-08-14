@@ -19,6 +19,7 @@ import Solver, {
   postOrderSteps,
   chooseCanonicalSolution,
   canonicalize,
+  toCanonicalKeyV2,   // task-131: F-set-eq 改用规范键做语义等价比对（同层，非字符串集）
 } from '../js/core/Solver.mjs';
 import { execSync } from 'child_process';
 import fs from 'fs';
@@ -144,7 +145,37 @@ for (const deck of solvableDecks) {
   record('E-canon--noncomm', k1 !== k2, `k1='${k1}', k2='${k2}'`);
 }
 
-// ---- Case F: findSolutionsWithAST 已去重、已排序、且集合与 Solver.findSolutions 相等 ----
+// ---- Case F: findSolutionsWithAST 已去重、已排序、且与 Solver.findSolutions 【语义等价】 ----
+// 🔴 task-131 第 3 批改写（经理已批）。原判据断言两 API 的【字符串集严格相等】，
+//     自 5b80efa 入库当天即 14/14 恒红（= 永久失灵的哨兵）。根因实测如下：
+//     同一个解在两侧的【操作数排列】不同，例 deck [1,1,1,11]：
+//       旧 API = ((1+11)*(1+1))    新 API = ((1+1)*(1+11))
+//     乘法交换律下二者等价，但字符串不等 ⇒ 字符串集比对必失败。
+// 🔴 穷举实测（1..13 四张有序组合 1820 组，本文件外部探针）：
+//       存在性 (old>0)===(new>0) 不一致 = 0 组
+//       解数 old.length===new.length 不一致 = 930 组
+//       新⊄旧 = 572 组；旧⊄新 = 1053 组  ⇒ 【任一方向的子集断言也不成立】
+//       规范键集 toCanonicalKeyV2 不等 = 0 组  ⇒ 【语义集完全等价，可作判据】
+//     故此处改为断言三件：① 存在性等价（对应 PageRenderer.js:722 实际依赖的 >0）
+//     ② 规范键集等价（语义层，可反向抓【任一侧漏解】）③ 新 API 自身已排序已去重。
+// 🔴 口径声明：两侧均为【内部式】（`*` `/`），实测两侧都不含 `×` `÷`；
+//     本判据【禁】做 `÷→/` 任何字符替换来绕过层差，也不得引入展示层 formatExprPretty。
+function _parseInnerExpr(s) {
+  // 只解析旧 API 输出的【全括号内部式】，例 ((1+11)*(1+1))。
+  // AST 节点形状必顷与 js/core/Solver.mjs 一致：{op, args:[l,r]} / {op:'num', value:{num,den}, label}
+  let i = 0;
+  function P() {
+    if (s[i] === '(') {
+      i++; const l = P(); const op = s[i++]; const r = P(); i++;
+      return { op, args: [l, r] };
+    }
+    const j = i;
+    while (i < s.length && /[0-9]/.test(s[i])) i++;
+    const v = parseInt(s.slice(j, i), 10);
+    return { op: 'num', value: { num: v, den: 1 }, label: String(v) };
+  }
+  return P();
+}
 for (const deck of solvableDecks) {
   const oldSols = Solver.findSolutions(deck); // 字符串数组
   const newSols = findSolutionsWithAST(deck);
@@ -156,12 +187,15 @@ for (const deck of solvableDecks) {
   }
   // 已去重
   const dedup = new Set(newExprs).size === newExprs.length;
-  // 集合相等（作为字符串集）
-  const setOld = new Set(oldSols);
-  const setNew = new Set(newExprs);
-  const eq = setOld.size === setNew.size && [...setOld].every(x => setNew.has(x));
-  record(`F-set-eq [${deck.join(',')}]`, sorted && dedup && eq,
-    `sorted=${sorted}, dedup=${dedup}, setEq=${eq}, old=${oldSols.length}, new=${newExprs.length}`);
+  // ① 存在性等价：产品唯一消费点 PageRenderer.js:722 只用 >0
+  const existEq = (oldSols.length > 0) === (newExprs.length > 0);
+  // ② 规范键集等价（语义层，同层比对：两侧都转成 toCanonicalKeyV2）
+  const oldKeys = new Set(oldSols.map(x => toCanonicalKeyV2(_parseInnerExpr(typeof x === 'string' ? x : x.expr))));
+  const newKeys = new Set(newSols.map(s => s.key));
+  const semEq = oldKeys.size === newKeys.size && [...oldKeys].every(k => newKeys.has(k));
+  record(`F-set-eq [${deck.join(',')}]`, sorted && dedup && existEq && semEq,
+    `sorted=${sorted}, dedup=${dedup}, existEq=${existEq}, semKeyEq=${semEq}, ` +
+    `old=${oldSols.length}(keys=${oldKeys.size}), new=${newExprs.length}(keys=${newKeys.size})`);
 }
 
 // ---- Case G: postOrderSteps 中间结果为分数时呈现 a/b（分数不化十进制） ----
