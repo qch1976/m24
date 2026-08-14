@@ -233,6 +233,34 @@ for (const deck of decks) {
 
 // ---- 结果汇总 ----
 console.log('\n=========================================');
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类补齐）──
+// 目的：捕获「断言静默退场」—— 断言因重构/分支变化不再执行时，仅看 fail=0 无法察觉。
+// 🔴 基数必可推导、禁裸数字；只算【业务断言】不含 D-0 自己（否则自引用）。
+//     D-0 自身计入 PASS ⇒ 总结行 `pass=N+1`（N 为业务绿数）。
+// 🔴 loopDeck 项直接引用 `decks.length`（:200 定义，实为 6 个 deck）而非写死数字：
+//     这样 decks 增删 deck 时基数自动跟随，不会因改数据而假红。
+// 🔴 本支踩过的坑（留存作证）：`grep -c "^ *assertEq("` = 15，但其中 :217 那一条就在
+//     `for (const deck of decks)` 循环内。若再加 loopDeck 就是重复计数。
+//     故 staticEq 取【循环外】的 14 条，循环那条归入 loopDeck。
+const EXPECTED = {
+  staticEq: 14,               // 循环外逐条 assertEq（:99-224 共 15 处 − :217 循环内 1 处）
+  assertNeq: 3,               // 逐条 assertNeq
+  assertTrue: 5,              // 逐条 assertTrue
+  loopDeck: decks.length,     // :208 for (const deck of decks) 内 :217 每轮 1 条
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+const _total = PASS + FAIL;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  PASS++;
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+} else {
+  FAIL++;
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
+}
+
 console.log(`BUG1 TOTAL: pass=${PASS} fail=${FAIL}`);
 console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅' : 'FAIL ❌'}`);
 console.log('=========================================');

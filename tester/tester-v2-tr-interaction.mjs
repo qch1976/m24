@@ -87,6 +87,28 @@ console.log('\n=== T-R07 答案列表关闭按钮单击不双入 ===');
 }
 
 console.log('\n=========================================');
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类补齐）──
+// 目的：捕获「断言静默退场」—— 断言不再执行时，仅看 fail=0 无法察觉。
+// 🔴 基数只算【业务断言】不含 D-0 自己（否则自引用）；D-0 计入 PASS ⇒ `pass=N+1`。
+// 🔴 MANUAL（真机待补）不入基数：它不计入 PASS/FAIL（见 :14），与断言总数不同口径。
+// ⚠️ 遗留问题（本轮不改，已上报）：T-R04(:61) / T-R06(:78) / T-R07(:85) 为 `check(..., true)`
+//     恒真断言，形式上有断言、实质无鉴别力（判据三级只到 ① 结构存在）。
+const EXPECTED = {
+  TR: 8,   // T-R01(:32) R02(:44) R03(:54) R04(:61) R05(:69,:71 两条) R06(:78) R07(:85)
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+const _total = PASS + FAIL;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  PASS++;
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+} else {
+  FAIL++;
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
+}
+
 console.log(`T-R Interaction TOTAL: pass=${PASS} fail=${FAIL} manual-pending=${MANUAL}`);
 console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅（代码级）+ 真机待补' : 'FAIL ❌'}`);
 console.log('=========================================');

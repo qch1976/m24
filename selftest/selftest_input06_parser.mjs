@@ -105,6 +105,42 @@ const rJ = checkUserAnswer(solJ, cvJ, { advancedCalc: true });
 ck('(1/1)*2*3*4=24 pass', rJ.pass === true, 'pass=' + rJ.pass);
 ck('  1/1 不计入 usedRecip（恒等）', rJ.usedRecip === false, 'usedRecip=' + rJ.usedRecip);
 
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类补齐）──
+// 目的：捕获「断言静默退场」—— 断言不再执行时，仅看 fail=0 无法察觉。
+// 🔴 基数必可推导、禁裸数字；只算【业务断言】不含 D-0 自己；D-0 计入 pass ⇒ `pass=N+1`。
+// 🔴 本支特殊点：`:47` 那条是 **条件断言**（`if (!r.ok) ck(...)`），
+//     故它的条数 = 【实际被拒绝的用例数】而非 `rejCases.length`。
+//     若产品退化成「本应拒绝却接受」，该条会静默少跑 ⇒ D-0 正好能拓到（这是特性不是 bug）。
+//     故基数用运行时累加得到的 _rejectedCount，并额外断言它 == rejCases.length（存在性前置）。
+const _rejectedCount = rejCases.filter(([, t]) => !parse(t, cv).ok).length;
+const EXPECTED = {
+  okAccept: okCases.length,        // :25 循环，每例 1 条「→ 接受」
+  rejReject: rejCases.length,      // :43 循环第 1 条「→ 拒绝」（无条件）
+  rejErrCode: _rejectedCount,      // :47 条件断言「错误码正确」（仅当真被拒时执行）
+  rejTotalCheck: 1,                // :49 非法用例总数覆盖断言
+  staticCk: 16,                    // 循环外逐条 ck：:53 :55 :57 :66 :67 :70 :73 :76 :81 :82 :85 :89 :93 :96 :105 :106
+                                   // 🔴 不用 `18-3` 推：grep 到的 21 处中含定义行与注释，靠减法必错；
+                                   // 此处逐行号列举（可逐条校对），:48 已单独计入 rejTotalCheck。
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+// 存在性前置：若拒绝数 ≠ 非法用例数，说明有本应拒绝的被错误接受 ⇒ 先报这个
+if (_rejectedCount !== rejCases.length) {
+  fail++;
+  console.log(`  XX  D-0 存在性前置：非法用例均被拒绝 — 🔴 实际拒绝 ${_rejectedCount}/${rejCases.length}`);
+}
+const _total = pass + fail;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  pass++;
+  console.log(`  ok  D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+} else {
+  fail++;
+  bad.push('D-0 断言总数自断言');
+  console.log(`  XX  D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
+}
+
 console.log('\n' + '='.repeat(70));
 console.log(`RESULT: pass=${pass} fail=${fail}`);
 if (fail > 0) { console.log('FAILED: ' + bad.join(' | ')); process.exit(1); }

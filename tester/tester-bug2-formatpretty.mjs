@@ -178,6 +178,32 @@ console.log('\n=== Bug2 硬约束：canonicalize 本体未受 formatExprPretty �
   }
 }
 
+// ── D-0：断言总数自断言（task-131 第 3 批 E 类补齐）──
+// 目的：捕获「断言静默退场」—— 断言不再执行时，仅看 fail=0 无法察觉。
+// 🔴 基数必可推导、禁裸数字；只算【业务断言】不含 D-0 自己；D-0 计入 PASS ⇒ `pass=N+1`。
+// 🔴 两个循环项均引用【运行时实际长度】，不写死：
+//     loopNoTriple = pretty5667.length（:156 循环，每条解 1 条断言）
+//     loopIdempotent = 4（:174 循环，trees 字面量 4 棵，定义在块作用域内不可外部引用）
+//     ⚠️ loopIdempotent 为此写成字面 4，但 :156 那条引用变量 ⇒ 解数变化时基数自动跟随。
+const EXPECTED = {
+  staticEq: 17,                       // 循环外逐条 assertEq（共 18 处 − :177 循环内 1 处）
+  loopNoTriple: pretty5667.length,    // :156 循环内 assertNoTripleParens
+  bareCount: 1,                       // :162 直推 cases.push + PASS++/FAIL++（全解 pretty 数 = 4）
+  loopIdempotent: 4,                  // :174 循环内 assertEq canonicalize 幂等（trees 4 棵）
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+const _total = PASS + FAIL;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  PASS++;
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+} else {
+  FAIL++;
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
+}
+
 // ---- 输出 ----
 console.log('\n=========================================');
 console.log(`BUG2 TOTAL: pass=${PASS} fail=${FAIL}`);

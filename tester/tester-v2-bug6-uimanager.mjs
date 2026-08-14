@@ -166,6 +166,44 @@ console.log('\n=== Part 3: 双分发去重 mock（模拟同 tick real touch + mo
   check('G.1 real touch 100ms 后桥接恢复分发', handleEventCalls.length === 1);
 }
 
+// ══════════ D-0 断言总数自断言（task-131 第 3 批 E 类补齐）══════════
+// 目的：捕获「断言静默退场」—— 某条断言因重构/异常/分支变化不再执行时，
+//       仅看 pass/fail 无法察觉（fail=0 仍为绿）。
+// 🔴 基数必顶可推导，禁裸数字：按【分族小计相加】写，每项均可在源码里数出对应断言。
+// 🔴 本支踩过的坑（留存作证）：按 `check('` 数源码得 29，实跑 30。差额来自 Y.9 用了
+//       反引号模板串 check(`Y.9 ...`)，单引号正则漏数 ⇒ 【数源码是代理量】。
+//       故下面小计均以【实际执行的断言族】为准，并在注释里标出行号依据。
+const EXPECTED = {
+  // Part 1 静态 diff（逐条 checkContains，无循环）
+  X: 4,     // X.1~X.4  白名单（:22-25）
+  Y: 9,     // Y.1~Y.8 静态（:28-35）+ Y.9 dedup return（:50，反引号写法）
+  Bug3: 8,  // Bug3.1~Bug3.8 桥接可用性未被破坏（:38-45）
+  // Part 2 运行时 mock harness（每个 Mock 块内断言数）
+  A: 1,     // Mock A 真机关桥接（:70）
+  B: 1,     // Mock B devtools 开桥接（:83）
+  C: 1,     // Mock C MOUSE_ONLY 强开（:96）
+  D: 1,     // Mock D 抛异常安全默认关（:109）
+  E: 2,     // Mock E 40ms 内去重（:132-133）
+  F: 2,     // Mock F 无 real touch 全通过（:150-151）
+  G: 1,     // Mock G 100ms 后恢复（:166）
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+// 🔴 口径：EXPECTED 只算【业务断言】，**不含 D-0 自己**（否则自引用，永远自洽）。
+//     D-0 自身计入 PASS ⇒ 最终总结行为 `pass=N+1`（N 为业务绿数，+1 即 D-0 本条）。
+//     与已入库 3 支（bug3-uimanager / v2-regression / v2-bug5-canonicalize）保持一致。
+
+console.log('\n=== D-0：断言总数自断言 ===');
+const _total = PASS + FAIL;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  PASS++;
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+} else {
+  FAIL++;
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
+}
+
 console.log('\n=========================================');
 console.log(`Bug6 TOTAL: pass=${PASS} fail=${FAIL}`);
 console.log(`OVERALL: ${FAIL === 0 ? 'PASS ✅' : 'FAIL ❌'}`);

@@ -137,13 +137,28 @@ console.log(`  字号       ${before.font} → ${ITEM_FONT_SIZE} (+${ITEM_FONT_S
 // ── 条款 8：断言总数自断言（防断言静默退场）──
 // task-116 补 2 条（CLOSE.y / CLOSE.h）后由 27 → 29。
 // 若某条断言因分支未进入而静默不执行，此处即判红，不会被 fail=0 掩盖。
-const EXPECTED_ASSERTION_COUNT = 29;
-console.log('\n=== 条款 8：断言总数自断言 ===');
-if (PASS + FAIL !== EXPECTED_ASSERTION_COUNT) {
-  console.log(`  ✗ 断言总数 = ${PASS + FAIL}，期望 ${EXPECTED_ASSERTION_COUNT}（有断言静默退场或新增未同步）`);
-  FAIL++;
+// ── D-0：断言总数自断言（task-131 第 3 批：原「条款 8」裸数字 29 ⇒ 改写为分族可推导）──
+// 目的：捕获「断言静默退场」—— 某条断言因重构/分支变化不再执行时，仅看 fail=0 无法察觉。
+// 🔴 为何改写：原写法 `EXPECTED_ASSERTION_COUNT = 29` 是裸数字，新增断言即假红；
+//     且原块判绿时**不** PASS++（只在判红时 FAIL++），与全仓 D-0 「自身计入 PASS」口径不一致。
+// 🔴 基数只算【业务断言】，**不含 D-0 自己**（否则自引用）；D-0 计入 PASS ⇒ 总结行 `pass=N+1`。
+const EXPECTED = {
+  T: 24,      // T-L01/L02/L02c 系列坐标断言（:51-126 之间逐条 check，无循环）
+  margin: 2,  // 无族前缀两条：面板左右边距对称（:112）/ ≥ 20 DP（:113）
+  CLOSE: 2,   // CLOSE 区域断言
+  LIST: 1,    // LIST 与 CLOSE 不重叠（:118）
+};
+const EXPECTED_ASSERTION_COUNT = Object.values(EXPECTED).reduce((s, n) => s + n, 0);
+console.log('\n=== D-0：断言总数自断言 ===');
+const _total = PASS + FAIL;
+if (_total === EXPECTED_ASSERTION_COUNT) {
+  PASS++;
+  console.log(`  ✓ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
 } else {
-  console.log(`  ✓ 断言总数 = ${PASS + FAIL} 与期望 ${EXPECTED_ASSERTION_COUNT} 一致`);
+  FAIL++;
+  console.log(`  ✗ D-0 断言总数自断言 — 实测总数=${_total} 期望=${EXPECTED_ASSERTION_COUNT}`);
+  console.log(`    分族期望：${JSON.stringify(EXPECTED)}`);
+  console.log('    ⇒ 有断言静默退场或新增未同步 EXPECTED');
 }
 
 console.log('\n=========================================');
