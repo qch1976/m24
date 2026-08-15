@@ -240,4 +240,10 @@ if (PENDING.length) {
 }
 console.log(`[t74-sentinel-efficacy] pass=${pass} fail=${fail} pending=${PENDING.length}`);
 console.log('='.repeat(78));
-process.exit(fail ? 1 : 0);
+// 🔴 task-131 经理例外授权（2026-08-15）：pending 也必须抬高 exit code。
+//   原写 process.exit(fail ? 1 : 0)：百分比失配只进 PENDING 不计 fail ⇒ rc 仍为 0
+//   ⇒ CI 视角【静默放过】（本人与经理各自变异实测均复现）。
+//   pending 的语义是「需人工裁定」而非「无事」，因此必须非零退出逼人看一眼；
+//   但仍与真 fail 分开计数（pending 不污染 fail 数字），便于区分
+//   【产品真回退】与【基准/需求未同步】。
+process.exit((fail || PENDING.length) ? 1 : 0);
