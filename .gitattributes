@@ -3,3 +3,12 @@
 
 # task-72: bash scripts MUST stay LF. CRLF makes them unrunnable.
 *.sh text eol=lf
+
+# task-140: lock *.js to LF as well.
+#   Why: R5-class judges hash the WORKTREE bytes (sha256), so a CRLF checkout made
+#   them fail on Windows while passing on Linux -- a platform-dependent false red.
+#   Index side was already clean (42/42 i/lf, 0 committed blobs contain CR);
+#   the pollution existed only in the worktree (18/42 w/crlf on Windows).
+#   NOTE: never use `* text=auto` here -- all 55 images/cards/*.png contain 0x0D
+#   and would be corrupted. Enumerate extensions explicitly instead.
+*.js text eol=lf

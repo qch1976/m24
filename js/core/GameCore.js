@@ -93,7 +93,15 @@ export default class GameCore {
    */
   recordSolutions(cards) {
     const values = (cards || []).map((c) => (c && typeof c.value === 'number' ? c.value : 0));
-    const sols = Solver.findSolutions(values);
+    // task-140：改走新 API findSolutionsWithAST（旧 Solver.findSolutions 为死口径）。
+    //   等价性依据（本人穷举 1820 组自取）：存在性分歧 0 组；解数分歧 930 组，全部为
+    //   旧 API 多出的「同一解的不同括号/写法」——新 API 已按 canonicalKey 合并。
+    //   本字段的唯一消费口径是存在性：getSolutions().length 仅在 PageRenderer:722→726
+    //   以 `primaryCount > 0` 参与判断，hasSolution() 亦只用 `.length > 0`；
+    //   面向 UI 的解法列表走 getAllSolutions()（本文件 :216，早已用新 API）。
+    //   故换源不改变任何功能行为，且消除与展示列表口径不一致的误读风险。
+    //   注意：Solver.findSolutions 本体保留（多支 tester/selftest 仍直接引用它）。
+    const sols = findSolutionsWithAST(values).map((s) => s.expr);
     this.currentCardValues = values;
     this.currentSolutions = sols;
     return { values, solutions: sols };
