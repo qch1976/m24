@@ -19,6 +19,13 @@ globalThis.wx = {
 };
 const AA = await import('../js/ui/AnswerArea.js');
 const A = AA.default, T = AA.TokenType;
+// 🔴 task-138：改据修正所需的两个【权威源】运行时导出（而非正则扫源码）：
+//   · AA.ADV_ANCHOR.advRow —— advRow 几何与列数的真实取值层（AnswerArea.js:96）
+//   · AA.TOKEN_ADV_KEY     —— token.type → cap 名映射（:60-63，与 RecipParser.ADV_TOKENS 一一对应）
+//   为何不继续用正则读源码：判对象就读对象，与被判事实同层；
+//   正则扫文本会被【注释/换行/空白】影响 —— G-1、T-1 两条旧判据都死在这上面。
+const ADV_ANCHOR = AA.ADV_ANCHOR;
+const TOKEN_ADV_KEY = AA.TOKEN_ADV_KEY;
 
 let pass = 0, fail = 0;
 const t = (name, cond, extra) => {
@@ -156,8 +163,40 @@ t('D-9 重复设同值 caps 不清空（幂等，避免每帧同步误清用户�
 // ============ 🔴 定界2：设置页返回即生效（经 PageRenderer 汇聚入口）============
 console.log('=== 🔴 定界2：设置变更返回即生效，无需重启 ===');
 const prSrc = (await import('fs')).readFileSync('js/ui/PageRenderer.js', 'utf-8');
+// 🔴 task-138 修正 T-1：弃用【字符距离窗口】改为【函数体切片】。
+//   原判据：/_applyAdvancedCalc[\s\S]{0,900}?answerArea\.setCaps\(this\._caps\)/
+//   失效证据（取值命令 python3 算两锚点 str.find 偏移差）：
+//     5c6dfbd 距离=876 ≤ 900 PASS  →  ad6c2d0 距离=1224 > 900 FAIL
+//     ∴ 自 08-10 task-126 起失效，已连红 3 个 commit。
+//   诱因：ad6c2d0 往 _applyAdvancedCalc 体内插入 ≈+348 字符【注释】（G-5 prevSig 说明），
+//   而产品链路完好（PageRenderer.js:193 函数、:217 调用）
+//   ⇒【加注释就能把判据弄红】= 判据脆弱，与产品正确性无关。
+//   新口径：按花括号配对截出函数体，在体内查调用 ⇒ 与注释多少无关。
+const fnBody = (src, name) => {
+  const i = src.indexOf(name + '(');
+  if (i < 0) return null;                       // 存在性前置：函数本身没了
+  const j = src.indexOf('{', i);
+  if (j < 0) return null;
+  let depth = 0;
+  for (let k = j; k < src.length; k++) {
+    if (src[k] === '{') depth++;
+    else if (src[k] === '}' && --depth === 0) return src.slice(j, k + 1);
+  }
+  return null;                                  // 括号未配对
+};
+const applyBody = fnBody(prSrc, '_applyAdvancedCalc');
+const T1_HIT = !!applyBody && applyBody.includes('answerArea.setCaps(this._caps)');
+// 🔴 存在性前置：先断【函数体取到了】，否则下一条的 false 分不清
+//   【产品真没调用】与【切片取值失败】—— 这正是旧判据 got:null 无法定位的病根。
+t('T-0 🔴 存在性前置：_applyAdvancedCalc 函数体可切片（区分取值失败 vs 真判红）',
+  typeof applyBody === 'string' && applyBody.length > 0,
+  applyBody === null ? 'null（函数不存在或括号未配对）' : `体长=${applyBody.length}`);
 t('T-1 _applyAdvancedCalc 内向答题区同步 caps（设置变更唯一汇聚入口）',
-  /_applyAdvancedCalc[\s\S]{0,900}?answerArea\.setCaps\(this\._caps\)/.test(prSrc), null);
+  T1_HIT,
+  // 🔴 extra 不再写常量 null，回显实际取到的值
+  { 函数体长: applyBody ? applyBody.length : null,
+    体内命中: T1_HIT,
+    setCaps出现次数: applyBody ? (applyBody.match(/answerArea\.setCaps/g) || []).length : null });
 t('T-2 构造时即同步 caps（首屏不先画出全部三键）',
   /setAdvancedCalc\(this\._advancedCalc\);[\s\S]{0,300}?setCaps\(this\._caps\)/.test(prSrc), null);
 // 语义验证：模拟「面板保存 → _applyAdvancedCalc」后按钮集合立即变
@@ -170,8 +209,36 @@ t('T-3 模拟保存后立即取按钮集合 ⇒ 已剔除 mod（返回即生效�
 // ============ R-01 相关：布局未重排 ============
 console.log('=== 不重排布局（advRow 几何恒定）===');
 const aaSrc = (await import('fs')).readFileSync('js/ui/AnswerArea.js', 'utf-8');
-t('G-1 advRow 仍为 3 列且几何未变（关掉的列置空，不串位）',
-  /advRow:\s*\{ x: 25,\s*y: 756, w: 361, h: 52,\s*cols: 3/.test(aaSrc), null);
+// 🔴 task-138 修正 G-1：原判据把【几何恒定】与【列数=3】耦合进同一条正则，已过期。
+//   过期证据（取值命令：逐 commit git show + 跑原正则）：
+//     54af0d8 cols:3 PASS  →  5c6dfbd cols:5 FAIL   ∴ 自 08-09 task-120 起，已连红 4 个 commit
+//   产品是【有意】扩列：AnswerArea.js:89 注释「INPUT-08 task-120：advRow 由 3 列扩为 5 列」，
+//   :96 现值 { x:25, y:756, w:361, h:52, cols:5, gap:0 }。
+//   🔴 关键：x/y/w/h 全程恒为 25/756/361/52 从未变过 ⇒ 判据标题所称「几何未变」其实仍成立，
+//     过期的只是被硬编在同一正则里的 cols:3。故拆成两条独立断言（解耦）。
+//   取值层升级：改读运行时导出 ADV_ANCHOR.advRow / TOKEN_ADV_KEY（判对象就读对象，与被判事实同层），
+//     不再正则扫源码 ⇒ 天然免疫「加注释/换行就判红」（T-1 同源病根）。
+const advRow = ADV_ANCHOR && ADV_ANCHOR.advRow;
+// 🔴 存在性前置①：advRow 对象必须取到，否则下面各项 undefined 比较会假判红
+t('G-0a 🔴 存在性前置：ADV_ANCHOR.advRow 可取到（区分取值失败 vs 值不符）',
+  !!advRow && typeof advRow === 'object',
+  advRow === undefined ? 'undefined（导出名或结构变了）' : JSON.stringify(advRow));
+// G-1a：几何 4 项恒定 —— 这是原判据真正要守的不变量，与列数无关
+const GEO_EXPECT = { x: 25, y: 756, w: 361, h: 52 };
+const geoOk = !!advRow && Object.keys(GEO_EXPECT).every((k) => advRow[k] === GEO_EXPECT[k]);
+t('G-1a advRow 几何 4 项恒定 x/y/w/h = 25/756/361/52（扩列不得位移，方案 §1.5）',
+  geoOk,
+  { 实际: advRow ? { x: advRow.x, y: advRow.y, w: advRow.w, h: advRow.h } : null, 期望: GEO_EXPECT });
+// G-1b：cols 与【权威源】联动 —— 🔴 不写死 5，写死只是把今天的现状抄成期望，下次扩键照样过期
+//   权威源 = TOKEN_ADV_KEY 的 cap 名集合（AnswerArea.js:60-63，与 RecipParser.ADV_TOKENS 一一对应）
+const capNames = TOKEN_ADV_KEY ? [...new Set(Object.values(TOKEN_ADV_KEY))] : [];
+// 🔴 存在性前置②：capNames 抽空时 0 === cols 会判红，但那是取值失败而非值不符，必须显式区分
+t('G-0b 🔴 存在性前置：TOKEN_ADV_KEY 非空（否则 cols 联动断言的红是取值失败）',
+  capNames.length > 0,
+  { TOKEN_ADV_KEY类型: typeof TOKEN_ADV_KEY, cap名: capNames.slice().sort(), 个数: capNames.length });
+t('G-1b advRow.cols 与 TOKEN_ADV_KEY cap 数联动（禁写死列数，扩键须同步改 cols）',
+  capNames.length > 0 && !!advRow && advRow.cols === capNames.length,
+  { cols: advRow ? advRow.cols : null, cap数: capNames.length, cap名: capNames.slice().sort() });
 // 各键 x 坐标恒定：关任意项后，剩余键的 x 必须与全开时相同（不左移填空）
 const full = mk(true, { recip: true, fact: true, mod: true });
 advKeys(full);
@@ -184,7 +251,22 @@ t('G-2 🔴 关阶乘后 recip/mod 的 x 不变（不左移填空，避免误触
   { fullX, partial: { recip: xOf(partial, 'recip'), mod: xOf(partial, 'mod') } });
 
 // ============ 条款 8：断言总数自断言 ============
-const EXPECTED_ASSERTION_COUNT = 31;
+// 🔴 task-138：原写 `= 31` 裸数字（与 task-131 E 类整改掉的写法同族：基数不可推导、
+//   增删断言须手工同步，改错也看不出来）。改为【分族小计相加】，每族数字对应本文件断言前缀，
+//   任何人增删断言时能一眼定位该加到哪族。
+//   取值命令（现取，非估算）：
+//     node --import ./tester/render-smoke/esm-hooks.mjs selftest/selftest_task112_caps_linkage.mjs \
+//       | grep -oE '  (PASS|FAIL) [A-Za-z]+-[0-9a-z]+' | sed -E 's/.*(PASS|FAIL) //;s/-.*//' | sort | uniq -c
+//   本轮 task-138 净增 4 条（31 → 35）：T-0 存在性前置 ×1；G-1 由 1 条拆为 4 条（G-0a/G-1a/G-0b/G-1b）净增 3。
+const EXPECTED_ASSERTION_COUNT =
+    3    // H-* 主开关关闭 ⇒ 三键全隐（含 H-3 反向防「一律拒绝」刷绿）
+  + 3    // B-* 基础
+  + 3    // C-* 构造/缓存
+  + 9    // D-* 已输入含被禁记号 ⇒ 清空口径（含 D-7/D-8/D-9 反向与幂等）
+  + 7    // L-* 布局/键位
+  + 1    // P-* 面板
+  + 4    // T-* 设置变更即生效（T-0 存在性前置 + T-1 汇聚入口 + T-2 构造同步 + T-3 保存即生效）
+  + 5;   // G-* 不重排布局（G-0a/G-0b 存在性前置 + G-1a 几何恒定 + G-1b cols 联动 + G-2 x 不左移）
 console.log(`\npass=${pass} fail=${fail}`);
 if (pass + fail !== EXPECTED_ASSERTION_COUNT) {
   console.log(`\n🔴 FAIL 条款8 断言总数不符：期望 ${EXPECTED_ASSERTION_COUNT}，实际 ${pass + fail}`);
