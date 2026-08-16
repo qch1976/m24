@@ -334,12 +334,21 @@ export function checkLegality(tokens) {
 // ============ Token → 展示字符串 ============
 export function formatTokens(tokens, cardValues) {
   const parts = [];
-  // 🔴 INPUT-08.1 §3.1：需知前一个 token 才能判「第二个连续 ^」⇒ 显式追踪 prevTok
+  // 🔴 INPUT-08.1 §3.1：需知前一个 token 才能判「第二个连续 ^」⇒ 显式跟踪 prevTok
   //   （本函数是 for..of，无索引 i；早前误用 i 会 ReferenceError，已修）
   let prevTok = null;
+  // 🔴 task-155（G6 回归）：开方屏显的 '(1/' 是【纯展示串】，token 流里并无 LEFT_PAREN。
+  //   旧实现只开不关 ⇒ 屏上永远是未闭合的 `8^(1/3`，用户必然去按 [）] 配平；
+  //   而 [）] 会真的写入 RIGHT_PAREN token ⇒ checkLegality 的 depth 转 -1
+  //   ⇒ reason='paren_mismatch' ⇒ 【提交】永久置灰（展示层欺骗输入层）。
+  //   修法：根指数操作数到位后【展示层自动补右括号】，使屏显自洽（`8^(1/3)`），
+  //   用户无需再按 [）]。❗仅改展示：不动 token 流、不动 checkLegality、不放宽提交条件。
+  let rootOpen = false;   // 当前是否有一个开方展示括号待闭合
   for (const t of tokens) {
     if (t.type === TokenType.NUMBER) {
       parts.push(String(cardValues[t.cardIndex]));
+      // 根指数到位 ⇒ 立即闭合展示括号
+      if (rootOpen) { parts.push(')'); rootOpen = false; }
     } else if (t.type === TokenType.OPERATOR) {
       parts.push(OP_DISPLAY[t.value] || t.value);
     } else if (t.type === TokenType.LEFT_PAREN) {
@@ -357,7 +366,12 @@ export function formatTokens(tokens, cardValues) {
       //   （引擎内部枚举名 'pow' 不得上屏）
       // 🔴 INPUT-08.1 §3.1：第二个连续 '^' 表示开方，屏显立即改为 a^(1/ ——
       //   用即时反馈替代教学（R-a：连按两次可发现性低）。
-      parts.push(prevTok && prevTok.type === TokenType.POW ? '(1/' : '^');
+      if (prevTok && prevTok.type === TokenType.POW) {
+        parts.push('(1/');
+        rootOpen = true;   // 🔴 task-155：标记待闭合，由后续根指数补 ')'
+      } else {
+        parts.push('^');
+      }
     } else if (t.type === TokenType.LOG) {
       // 🔴 INPUT-08.1 §2.1：屏显须为 `log_a b`（与引擎 render 的 `(log_a b)` 一致）。
       //   token 流是中缀 `a log b`（沿用既有 UI 校验，见 checkLegality 的 LOG 分支），
