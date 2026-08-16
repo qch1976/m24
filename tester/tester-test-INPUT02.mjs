@@ -12,13 +12,13 @@ global.performance = performance || { now: () => Date.now() };
 
 // 加载模块
 import Deck from '../js/core/Deck.js';
-// 🔴 task-153：此处必须是 .js，不可「优化」成 .mjs —— 下面 :78 要 monkey patch
+// 🔴 task-153：此处必须是 .js，不可「优化」成 .mjs —— 下方 [R-01] 抛错验证段要 monkey patch
 //   Solver.isSolvable，而产品 js/core/Deck.js:7 写的是 import Solver from './Solver'
 //   （经 esm-hooks 解析到 Solver.js）。ESM 按【路径】缓存模块：Solver.js 与 Solver.mjs
 //   内容同源（blob 同为 a8c73be2）却是两个独立实例，实测 .mjs.default === .js.default → false。
 //   若改回 .mjs，patch 会打在产品用不到的那个实例上 ⇒ dealSolvable 永不抛 ⇒ 下方
 //   「FAILED: 未抛异常」分支恒命中、rc 恒 1（不写死行号：行号会随编辑漂移，本注释初版
-//   即因写死 :77 而在插入注释后失准）。
+//   即因写死行号而在插入注释后失准；此处 :77 是【叙述当时的错误值】，非活引用，故保留）。
 //   现成正例对照：selftest/selftest_input02.mjs:5 引 .js，同样 patch 实测生效。
 import Solver from '../js/core/Solver.js';
 
@@ -176,9 +176,11 @@ console.log(`All done at ${new Date().toISOString()}`);
 // 🔴 task-153：rc 通道（本支原为全仓唯一「有真判定但 rc 恒 0」支）
 //   落点选在文件尾部：已现取确认顶层无 early return / process.exit / throw，
 //   且实测能打到 "=== 测试完成 ===" ⇒ 尾部可达。
-//   （对比 tester-input06-r04.mjs：那支 :213 中途崩溃使尾部 done() 不可达，
+//   （对比 tester-input06-r04.mjs：那支在 R-04.x 扫描族里首次执行 [...res.primary.values(),
+//    ...res.advanced.values(), ...res.cancelled.values()] 展开时崩溃（cancelled 已由 Map 改计数器），
+//    使尾部 done() 不可达，
 //    故当时须把自断言前移；本支无此问题，不必前移。）
-//   rc 纳入【全部三处】判定，不只 allPass —— 否则 :77 抛错验证的红会被 rc 漏掉。
+//   rc 纳入【全部三处】判定，不只 allPass —— 否则 [R-01] 抛错验证段的红会被 rc 漏掉。
 // ============================================================================
 console.log('');
 console.log('=== [rc] 汇总 ===');
@@ -193,7 +195,7 @@ const chk = (name, cond, extra = '') => {
 
 chk('R-01 100 轮发牌零失败', failed === 0, `失败轮次=${failed}`);
 chk('R-01 连续无解应抛异常', throwPass === true, `throwPass=${throwPass}`);
-// R-02 逐例复算（与 :100-114 同口径独立再判一次，使每条样例各占 1 条断言）
+// R-02 逐例复算（与上方 [R-02] allPass 段同口径独立再判一次，使每条样例各占 1 条断言）
 testCases.forEach((tc) => {
   const n = Solver.findSolutions(tc.values).length;
   chk(`R-02 ${tc.name}`, n >= tc.expectedMin && n <= tc.expectedMax,
