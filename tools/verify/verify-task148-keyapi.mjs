@@ -27,5 +27,18 @@ for(const cards of [[3,3,8,8],[1,3,4,6],[1,2,3,4],[0,0,2,12],[1,5,5,5],[5,8,11,1
   for(const[disp,node]of r.advancedNodes){ tot++; if(r.advanced.has(RS.keyWithFlags(node))) hit++; }
 }
 T(`6 组共 ${tot} 条 advanced 解，keyWithFlags 命中 ${hit}/${tot}`, tot>0 && hit===tot);
-console.log(`\n断言总数校验 pass+fail=${pass+fail}`);
-console.log(fail===0?'RESULT: ALL PASS':'RESULT: FAIL='+fail);
+// 🔴 task-148 复核修正（经理 2026-08-16 10:01 指出）：原版【有断言但 rc 恒 0】
+//   ⇒ 判红了却告诉 CI「成功」（实测：FAIL=2 依然 rc=0）。同 task-142 ① 类缺陷。
+//   修法：① 尾部置 process.exitCode；② 补 EXPECTED_ASSERTION_COUNT 分族自断言，
+//   防断言静默退场（early-return / 抛异常少跑断言也必需非 0）。
+const EXPECTED_ASSERTION_COUNT = 9;   // 🔴 分族：门禁⑥ 6 + 门禁⑦ 2 + 全量一致性 1 = 9
+console.log(`\n断言总数校对 pass+fail=${pass + fail}`);
+const totalOk = (pass + fail) === EXPECTED_ASSERTION_COUNT;
+if (!totalOk) {
+  console.log(`✗ 条款8 断言总数不符：得 ${pass + fail} ≠ 期望 ${EXPECTED_ASSERTION_COUNT} ⇒ 可能有断言静默退场`);
+} else {
+  console.log(`✓ 条款8 断言总数校对：${pass + fail} == 期望 ${EXPECTED_ASSERTION_COUNT}`);
+}
+console.log(fail === 0 && totalOk ? 'RESULT: ALL PASS' : 'RESULT: FAIL=' + fail);
+// 🔴 rc 通道：0=全绿；1=有断言失败；2=断言总数不符（与 run-gate.sh 自述的码义同口径）
+process.exitCode = !totalOk ? 2 : (fail === 0 ? 0 : 1);
