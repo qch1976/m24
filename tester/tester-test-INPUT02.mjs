@@ -12,7 +12,13 @@ global.performance = performance || { now: () => Date.now() };
 
 // 加载模块
 import Deck from '../js/core/Deck.js';
-import Solver from '../js/core/Solver.mjs';
+// 🔴 task-153：此处必须是 .js，不可「优化」成 .mjs —— 下面 :78 要 monkey patch
+//   Solver.isSolvable，而产品 js/core/Deck.js:7 写的是 import Solver from './Solver'
+//   （经 esm-hooks 解析到 Solver.js）。ESM 按【路径】缓存模块：Solver.js 与 Solver.mjs
+//   内容同源（blob 同为 a8c73be2）却是两个独立实例，实测 .mjs.default === .js.default → false。
+//   若改回 .mjs，patch 会打在产品用不到的那个实例上 ⇒ dealSolvable 永不抛 ⇒ :77 恒判红。
+//   现成正例对照：selftest/selftest_input02.mjs:5 引 .js，同样 patch 实测生效。
+import Solver from '../js/core/Solver.js';
 
 console.log('=== INPUT-02 Tester 独立测试 ===');
 console.log(`Date: ${new Date().toISOString()}`);
@@ -71,11 +77,13 @@ console.log('=== [R-01] 连续无解抛错验证 ===');
 const originalIsSolvable = Solver.isSolvable;
 Solver.isSolvable = () => false;
 
+let throwPass = false;   // 🔴 task-153：原来只打印不落变量，rc 通道无法纳入此判定
 try {
   deck.dealSolvable(4, 24);
   console.log('  FAILED: 未抛异常');
 } catch (e) {
   console.log(`  OK: 正确抛出异常: ${e.message}`);
+  throwPass = true;
 }
 
 // 恢复原方法
@@ -161,3 +169,43 @@ console.log('');
 
 console.log('=== 测试完成 ===');
 console.log(`All done at ${new Date().toISOString()}`);
+
+// ============================================================================
+// 🔴 task-153：rc 通道（本支原为全仓唯一「有真判定但 rc 恒 0」支）
+//   落点选在文件尾部：已现取确认顶层无 early return / process.exit / throw，
+//   且实测能打到 "=== 测试完成 ===" ⇒ 尾部可达。
+//   （对比 tester-input06-r04.mjs：那支 :213 中途崩溃使尾部 done() 不可达，
+//    故当时须把自断言前移；本支无此问题，不必前移。）
+//   rc 纳入【全部三处】判定，不只 allPass —— 否则 :77 抛错验证的红会被 rc 漏掉。
+// ============================================================================
+console.log('');
+console.log('=== [rc] 汇总 ===');
+
+// 分族算式（禁裸数字）：R-01 发牌 1 条（failed==0）+ R-01 抛错验证 1 条 + R-02 典型样例 10 条
+const EXPECTED_ASSERTION_COUNT = 1 + 1 + testCases.length;
+let pass = 0, fail = 0;
+const chk = (name, cond, extra = '') => {
+  if (cond) { pass++; console.log(`  ok  ${name}${extra ? '   ' + extra : ''}`); }
+  else { fail++; console.log(`  XX  ${name}${extra ? '   ' + extra : ''}`); }
+};
+
+chk('R-01 100 轮发牌零失败', failed === 0, `失败轮次=${failed}`);
+chk('R-01 连续无解应抛异常', throwPass === true, `throwPass=${throwPass}`);
+// R-02 逐例复算（与 :100-114 同口径独立再判一次，使每条样例各占 1 条断言）
+testCases.forEach((tc) => {
+  const n = Solver.findSolutions(tc.values).length;
+  chk(`R-02 ${tc.name}`, n >= tc.expectedMin && n <= tc.expectedMax,
+    `solutions=${n} expected=[${tc.expectedMin},${tc.expectedMax}]`);
+});
+
+// 断言总数自断言：防某族被静默跳过（例如 testCases 被误删）而「全绿」
+const total = pass + fail;
+if (total !== EXPECTED_ASSERTION_COUNT) {
+  fail++;
+  console.log(`  XX  断言总数核对：${total} != 期望 ${EXPECTED_ASSERTION_COUNT}（有断言静默退场或算式未同步）`);
+} else {
+  console.log(`  \u2713 断言总数核对：${total} == 期望 ${EXPECTED_ASSERTION_COUNT} \u2705  pass=${pass} fail=${fail}`);
+}
+
+console.log(fail === 0 ? 'ALL PASS' : `OVERALL: FAIL (${fail})`);
+process.exit(fail === 0 ? 0 : 1);
