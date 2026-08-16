@@ -43,8 +43,13 @@ const r26 = RS.solve([1, 2, 2, 12], { advancedCalc: true });
 const r26off = RS.solve([1, 2, 2, 12], { advancedCalc: false });
 const bareKey = '(* n12 n2)';
 const advKeys26 = [...r26.advanced.keys()];
-T('A-26d🔴 [1,2,2,12] 高级分区存在 (* n12 n2)|R0F0M1 键（含%标记）',
-  advKeys26.some((k) => k.startsWith(bareKey) && k.endsWith('M1')), advKeys26.filter((k) => k.startsWith(bareKey)));
+// 🔴 task-150：原 endsWith('M1') 是【尾锚定】—— INPUT-08 §3.3 扩为 R→F→M→P→L 后
+//   M 位不再位于串尾（…M1P0L0），故必然失配。期望值由 §3.3 位序推导得来（非抄 got）：
+//   原三位 R0F0M1（R=0 无倒数 / F=0 无阶乘 / M=1 用了 %）⇒ 位序恒定、前三位原样保留
+//   该式未用幂、未用对数 ⇒ P=0、L=0  ⇒  R0F0M1P0L0
+//   🔴 改为按【位】取 M，不依赖后缀总长 ⇒ 后续再扩位不会二次失配。
+T('A-26d🔴 [1,2,2,12] 高级分区存在 (* n12 n2)|R0F0M1P0L0 键（含%标记，§3.3 五位）',
+  advKeys26.some((k) => k.startsWith(bareKey) && /\|R0F0M1P0L0$/.test(k)), advKeys26.filter((k) => k.startsWith(bareKey)));
 T('A-26e🔴 primary 分区不含任何展示文本带 % 的解',
   [...r26.primary.values()].every((d) => !String(d).includes('%')),
   [...r26.primary.values()].filter((d) => String(d).includes('%')));
@@ -87,9 +92,13 @@ T('A-28c🔴 标记按原式 ⇒ usedFact 须 true（守 R-03）', RS.countFact(
 const r28 = RS.solve([0, 2, 12, 1], { advancedCalc: true });
 // task-100 A：键后缀由 |F?M? 改为 |R?F?M?（补 usedRecip 维）⇒ 原 /\|F1/ 失配。
 // 改为按定长后缀取 F 位，位序 R→F→M（205 §C-1）。
-const hasFactAdv = [...r28.advanced.keys()].some((k) => /\|R[01]F1M[01]$/.test(k));
+// 🔴 task-150：原 /\|R[01]F1M[01]$/ 的 `$` 锚在 M 位后 ⇒ 五位键 …M0P0L0 必然失配，
+//   got:[] 是【正则失配】，非「无 F1 解」。双层自证：① 该正则对五位 F1 正例失配、对三位命中
+//   （尺子问题）；② solve 已传 {advancedCalc:true}，[0,2,12,1] 的 F1 解【真实存在 20 条】。
+//   按 §3.3 位序补 P/L 两位（F 位仍按位取，不写死其余位值）。
+const hasFactAdv = [...r28.advanced.keys()].some((k) => /\|R[01]F1M[01]P[01]L[01]$/.test(k));
 T('A-28d🔴 [0,2,12,1] advanced 中存在 F1 标记的解（0! 计入高级）', hasFactAdv,
-  [...r28.advanced.keys()].filter((k) => /\|R[01]F1M[01]$/.test(k)).slice(0, 3));
+  [...r28.advanced.keys()].filter((k) => /\|R[01]F1M[01]P[01]L[01]$/.test(k)).slice(0, 3));
 // R-03 反向：1!/2! 不得计入 —— 由枚举期排除保证
 T('A-28e R-03 反向：factEnumerable(1)=false（1! 不枚举）', RS.factEnumerable(1) === false, RS.factEnumerable(1));
 T('A-28f R-03 反向：factEnumerable(2)=false（2! 不枚举）', RS.factEnumerable(2) === false, RS.factEnumerable(2));
@@ -118,8 +127,11 @@ T('A-28h🔴 枚举期排除实证：原式中 1!/2! 退化式出现 0 次（故
 //    ⇒ 只有源码断言判红的变异，等于没有行为证据，必须补。
 const r28b = RS.solve([0, 0, 2, 12], { advancedCalc: true });
 const r28bOff = RS.solve([0, 0, 2, 12], { advancedCalc: false });
-T('A-28i🔴 B6 行为级：[0,0,2,12] 的 (* n12 n2)|R0F1M0 须在 advanced（fact 被吸收仍置标记）',
-  r28b.advanced.has('(* n12 n2)|R0F1M0'),
+// 🔴 task-150：原硬编码三位全串 '(* n12 n2)|R0F1M0'。按 §3.3 位序推导：
+//   原三位 R0F1M0（R=0 / F=1 用了 0! / M=0 无 %）⇒ 前三位原样保留；未用幂/对数 ⇒ P0L0
+//   ⇒ 推导期望 = (* n12 n2)|R0F1M0P0L0
+T('A-28i🔴 B6 行为级：[0,0,2,12] 的 (* n12 n2)|R0F1M0P0L0 须在 advanced（fact 被吸收仍置标记）',
+  r28b.advanced.has('(* n12 n2)|R0F1M0P0L0'),
   [...r28b.advanced.keys()].filter((k) => k.startsWith('(* n12 n2)')));
 T('A-28j🔴 B6 行为级：primary 不得出现展示带 ! 的解',
   [...r28b.primary.values()].every((d) => !String(d).includes('!')),
@@ -193,4 +205,17 @@ T('A-31e 精确运算：无浮点 ===24 / ==24（排除合法 24n）',
 T('A-31f 精确运算：无 toFixed', !/toFixed/.test(src), null);
 
 console.log(`\npass=${pass} fail=${fail}`);
+
+// 🔴 task-150 新增：断言总数自断言（分族算式，禁裸数字）——防断言静默退场。
+//   48 = 本支修复前已通过的断言数（现取 rc=1 时 pass=48）
+//    3 = 本支修复的三条（A-26d 尾锚定 / A-28i 硬编码三位 / A-28d 正则 $ 锚 M 位后）
+const EXPECTED_ASSERTION_COUNT = 48 + 3;
+const total = pass + fail;
+if (total !== EXPECTED_ASSERTION_COUNT) {
+  console.log(`FAIL 断言总数自断言：${total} != 期望 ${EXPECTED_ASSERTION_COUNT}（有断言静默退场）`);
+  fail++;
+} else {
+  console.log(`断言总数核对：${total} == 期望 ${EXPECTED_ASSERTION_COUNT} ✅`);
+}
+console.log(fail === 0 ? 'ALL PASS' : `OVERALL: FAIL (${fail})`);
 process.exit(fail === 0 ? 0 : 1);
