@@ -16,7 +16,9 @@ import Deck from '../js/core/Deck.js';
 //   Solver.isSolvable，而产品 js/core/Deck.js:7 写的是 import Solver from './Solver'
 //   （经 esm-hooks 解析到 Solver.js）。ESM 按【路径】缓存模块：Solver.js 与 Solver.mjs
 //   内容同源（blob 同为 a8c73be2）却是两个独立实例，实测 .mjs.default === .js.default → false。
-//   若改回 .mjs，patch 会打在产品用不到的那个实例上 ⇒ dealSolvable 永不抛 ⇒ :77 恒判红。
+//   若改回 .mjs，patch 会打在产品用不到的那个实例上 ⇒ dealSolvable 永不抛 ⇒ 下方
+//   「FAILED: 未抛异常」分支恒命中、rc 恒 1（不写死行号：行号会随编辑漂移，本注释初版
+//   即因写死 :77 而在插入注释后失准）。
 //   现成正例对照：selftest/selftest_input02.mjs:5 引 .js，同样 patch 实测生效。
 import Solver from '../js/core/Solver.js';
 
