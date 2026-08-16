@@ -135,6 +135,25 @@ console.log('\n=== T-R04 删除键单击一次删一 token ===');
 //   （原先声明在 T-R06 的 { } 块内，T-R07 块取不到 ⇒ ReferenceError）。
 //   mock ctx 口径照抄 tester/tester-bug3-uimanager-diff.mjs:72 的 Proxy 写法。
 const AMmod = await import('../js/ui/AnswerModal.js');
+// 🔴 task-147 项④：crash 型静默退场守卫。
+//   原状（缺陷由 task-141 引入，见 git log -S "new AMmod.default()" ⇒ 8680d7d）：
+//   下方 4 处 `new AMmod.default()` 无任何可用性检查，AnswerModal 不可构造时
+//   直接抛 TypeError 中断脚本 ⇒ 其后 T-R06/T-R07 全部断言 **与 D-0 自断言一并静默退场**，
+//   pass/fail 与 TOTAL 行都不打印。兜底探测器自身被绕过，与 item13 同型。
+//   ⇒ 改为：可用性不成立时**判红并继续**，绝不抛出，确保 D-0 恒能执行。
+const AM_OK = typeof AMmod.default === 'function';
+check('T-R06/R07 可用性前置：AnswerModal 默认导出应可构造（不可用时判红而非中断）',
+  AM_OK, `typeof AMmod.default=${typeof AMmod.default}`);
+// 安全构造器：不可用时返回 null，由各块自行判红跳过，不抛异常。
+const mkModal = (label) => {
+  if (!AM_OK) return null;
+  try {
+    return new AMmod.default();
+  } catch (e) {
+    console.log(`    [${label}] AnswerModal 构造抛错：${String(e && e.message).slice(0, 90)}`);
+    return null;
+  }
+};
 const mkCtx = () => new Proxy({}, { get: (_t, k) => {
   if (k === 'measureText') return () => ({ width: 50 });
   if (k === 'canvas') return { width: 414, height: 896 };
@@ -165,7 +184,11 @@ console.log('\n=== T-R06 答案列表触摸拖拽滚动（真机） ===');
   //     · _listRect / _scaleCache 由 render() :234 建立 ⇒ 必须先 render 再模拟触摸
   //     · onTouchMove 用 (clientY - _dragStartClientY)/scale 反向累加，并夹在 [0, _maxScrollDP()]
   //   mock ctx 口径照抄 tester/tester-bug3-uimanager-diff.mjs:72 的 Proxy 写法。
-  const modal = new AMmod.default();
+  const modal = mkModal('T-R06');
+  if (!modal) {
+    // 🔴 判红并继续（不抛）：AnswerModal 不可用时本块无法取值，红掉但让 D-0 仍能跑
+    check('T-R06 拖拽滚动（AnswerModal 不可构造，本块判红跳过）', false, 'modal=null');
+  } else {
   modal.open(items, []);
   modal.render(mkCtx(), 414, 896);
   const sc = modal._scaleCache;
@@ -192,11 +215,15 @@ console.log('\n=== T-R06 答案列表触摸拖拽滚动（真机） ===');
   check('T-R06-end 抬起后退出拖拽态（_dragging 复位，防粘滞持续滚动）',
     modal._dragging === false, `_dragging=${modal._dragging}`);
   // 反向：列表区外按下不得进入拖拽（防「无条件 dragging」把上面刷绿）
-  const outside = new AMmod.default();
+  const outside = mkModal('T-R06-rev');
+  if (!outside) check('T-R06-rev 反向（AnswerModal 不可构造，判红跳过）', false, 'modal=null');
+  else {
   outside.open(items, []); outside.render(mkCtx(), 414, 896);
   outside.onTouchStart({ clientX: 5, clientY: 5 });      // 面板左上角外侧
   check('T-R06-rev 🔴 反向：列表区外按下不进入拖拽态（不得无条件 dragging）',
     !outside._dragging, `_dragging=${outside._dragging}`);
+  }   // /task-147 mkModal 守卫块闭合
+  }   // /task-147 mkModal 守卫块闭合
   manual('T-R06', '需华为 P30 真机手指按下→拖动→抬起，验证滚动');
 }
 
@@ -211,7 +238,10 @@ console.log('\n=== T-R07 答案列表关闭按钮单击不双入 ===');
   //     故正确判据是「hit() 必须返回 'close'」+「外部 close() 后 isVisible() 转 false 且幂等」，
   //     ⚠️ 不是「onTouchEnd 后 visible 自动变 false」—— 我探针初测时按后者判过，
   //     核过产品注释确认是我调用契约理解错，非产品缺陷（故未上报开发）。
-  const m7 = new AMmod.default();
+  const m7 = mkModal('T-R07');
+  if (!m7) {
+    check('T-R07 关闭按钮（AnswerModal 不可构造，本块判红跳过）', false, 'modal=null');
+  } else {
   m7.open(items, []);
   m7.render(mkCtx(), 414, 896);
   const sc7 = m7._scaleCache;
@@ -231,12 +261,16 @@ console.log('\n=== T-R07 答案列表关闭按钮单击不双入 ===');
     m7.isVisible() === false && closeErr === null,
     `isVisible=${m7.isVisible()} err=${closeErr}`);
   // 反向：非关闭按钮区（列表内）单击不得返回 'close'（防「一律 close」把上面刷绿）
-  const m7b = new AMmod.default();
+  const m7b = mkModal('T-R07-rev');
+  if (!m7b) check('T-R07-rev 反向（AnswerModal 不可构造，判红跳过）', false, 'modal=null');
+  else {
   m7b.open(items, []); m7b.render(mkCtx(), 414, 896);
   const scb = m7b._scaleCache;
   const hitList = m7b.hit({ clientX: (61 + 140) * scb.scale, clientY: (240 + 200) * scb.scale });
   check('T-R07-rev 🔴 反向：列表区单击返回 \'consumed\' 而非 \'close\'（遮罩内不误关）',
     hitList === 'consumed', `hit(列表内)=${JSON.stringify(hitList)}`);
+  }   // /task-147 mkModal 守卫块闭合
+  }   // /task-147 mkModal 守卫块闭合
   manual('T-R07', '需真机验证：单击 CLOSE_BTN 1 次，弹窗关闭且无二次弹出');
 }
 
@@ -262,6 +296,7 @@ const EXPECTED = {
   R02: 1 + 1,       // task-146：存在性前置 + ( 与 ) 每次增量恰为 1
   R03: 1,   // 数字键：UIManager 更新 _lastRealTouchTs（源码检查）
   R04: 3,   // task-141：存在性前置 + tokens 减 1 真行为 + 空栈反向
+  AM:  1,   // task-147：AnswerModal 可用性前置（不可构造时判红而非中断，保 D-0 恒执行）
   R05: 2,   // AnswerModal touch 处理 + _scrollY 状态（源码检查）
   R06: 5,   // task-141：2 条存在性前置 + _scrollY 真位移 + 抬起复位 + 区外反向
   R07: 5,   // task-141：存在性前置 + hit()==='close' + close 生效 + 二次幂等 + 列表区反向
