@@ -20,28 +20,64 @@ function manual(name, reason) {
 
 console.log('=== T-R01 运算符键单击不双入 ===');
 {
-  // 代码层：依赖 Bug6 的 X+Y 合流；答案：无 answerArea 幂等保护，完全靠 Bug6。
-  // 独立验证：mock 一次 wx.onTouchEnd (real) + mouseup(bridge) 只算 1 次
-  let count = 0;
-  const renderer = { handleEvent: () => count++ };
-  let _lastRealTouchTs = 0;
-  const DEDUP_MS = 40;
-  _lastRealTouchTs = Date.now();
-  renderer.handleEvent('touchend', {});  // real
-  if (Date.now() - _lastRealTouchTs >= DEDUP_MS) renderer.handleEvent('touchend', {}); // bridge 被 dedup
-  check('T-R01 运算符单击后 handleEvent 恰好 1 次（代码级 mock）', count === 1, `${count} 次`);
+  // 🔴 task-146：本块原为【判据层假绿】—— 只操作自造 { handleEvent: () => count++ }，
+  //   把 DEDUP_MS 去重逻辑在测试里自己重写一遍再自证，块内读产品文件次数 = 0。
+  //   实测：js/ui/UIManager.js + js/ui/AnswerModal.js 清成 '// gutted'（各 9 字节）后本条仍绿。
+  // 权威期望源：架构师 92 号验收矩阵 :415 T-R01
+  //   前置「发牌 DEAL_DONE」⇒ 产品公开 API a.setEnabled(true)（AnswerArea.js:527）
+  //   期望「getFormulaText() 恰好末尾多 1 字符；tokens.length 增量 = 1」
+  // ⇒ 改为真读产品 AnswerArea：走真入口 handleButton → addToken → tokens。
+  const AAmod = await import('../js/ui/AnswerArea.js');
+  const AnswerAreaCls = AAmod.default;
+  // 判据①存在性前置：产品类与真入口必须存在（防特性整体缺失时后续判据全绿）
+  check('T-R01 存在性前置：AnswerArea 可实例化且 handleButton/getTokens/getFormulaText 均存在',
+    typeof AnswerAreaCls === 'function' &&
+    typeof AnswerAreaCls.prototype.handleButton === 'function' &&
+    typeof AnswerAreaCls.prototype.getTokens === 'function' &&
+    typeof AnswerAreaCls.prototype.getFormulaText === 'function',
+    `cls=${typeof AnswerAreaCls}`);
+  const a = new AnswerAreaCls();
+  a.setEnabled(true);              // 92 号前置：DEAL_DONE
+  const n0 = a.getTokens().length, f0 = a.getFormulaText();
+  a.handleButton({ kind: 'op', opValue: '+' });   // 单击运算符 '+' 一次
+  const n1 = a.getTokens().length, f1 = a.getFormulaText();
+  // 判据②真行为：tokens 增量应为 1（92 号原文期望，非把现状写成期望）
+  check('T-R01 单击运算符一次后 tokens.length 增量应为 1（真读产品 AnswerArea）',
+    n1 - n0 === 1, `${n0} → ${n1}`);
+  // 判据③真行为：formulaText 应恰好末尾多 1 字符
+  check('T-R01 单击运算符一次后 getFormulaText() 应恰好末尾多 1 字符（真读产品）',
+    f1.length - f0.length === 1 && f1.startsWith(f0), `${JSON.stringify(f0)} → ${JSON.stringify(f1)}`);
+  // 判据④反向鉴别力：未发牌（enabled=false）时同一单击不得写入，防「恒增 1」式假绿
+  const z = new AnswerAreaCls();   // 不调 setEnabled ⇒ AnswerArea.js:381 默认 false
+  const z0 = z.getTokens().length;
+  z.handleButton({ kind: 'op', opValue: '+' });
+  check('T-R01 反向：未发牌(enabled=false)时单击运算符不得写入 tokens',
+    z.getTokens().length === z0, `${z0} → ${z.getTokens().length}`);
   manual('T-R01', '需在微信开发者工具单击 "+" 观察 formulaText 是否恰增 1 字符');
 }
 
 console.log('\n=== T-R02 括号键单击不双入 ===');
 {
-  let count = 0;
-  const renderer = { handleEvent: () => count++ };
-  const DEDUP_MS = 40;
-  let ts = 0;
-  ts = Date.now(); renderer.handleEvent('touchend', {}); if (Date.now() - ts >= DEDUP_MS) count++; // "("
-  ts = Date.now(); renderer.handleEvent('touchend', {}); if (Date.now() - ts >= DEDUP_MS) count++; // ")"
-  check('T-R02 括号单击 2 次后 handleEvent 恰好 2 次（代码级 mock）', count === 2, `${count} 次`);
+  // 🔴 task-146：同 T-R01，本块原为自造 mock 自证（gutted 产品后仍绿），块内读产品 0 次。
+  // 权威期望源：92 号验收矩阵 :416 T-R02
+  //   操作「单击 ( 一次；再单击 ) 一次」，期望「每次 tokens.length 增量恰为 1」
+  const AAmod2 = await import('../js/ui/AnswerArea.js');
+  const AnswerAreaCls2 = AAmod2.default;
+  // 判据①存在性前置
+  check('T-R02 存在性前置：AnswerArea 真入口 handleButton 存在',
+    typeof AnswerAreaCls2 === 'function' && typeof AnswerAreaCls2.prototype.handleButton === 'function',
+    `cls=${typeof AnswerAreaCls2}`);
+  const b = new AnswerAreaCls2();
+  b.setEnabled(true);
+  const deltas = [];
+  for (const v of ['(', ')']) {
+    const before = b.getTokens().length;
+    b.handleButton({ kind: 'op', opValue: v });
+    deltas.push(b.getTokens().length - before);
+  }
+  // 判据②真行为：两次单击的增量都应恰为 1（92 号原文「每次增量恰为 1」）
+  check('T-R02 单击 ( 与 ) 各一次，每次 tokens.length 增量都应为 1（真读产品 AnswerArea）',
+    deltas.length === 2 && deltas.every((d) => d === 1), `增量序列=[${deltas.join(',')}]`);
   manual('T-R02', '需真机验证：单击 "(" 一次；单击 ")" 一次；tokens.length 增量各为 1');
 }
 
@@ -222,8 +258,8 @@ console.log('\n=========================================');
 //     node --import ./tester/render-smoke/esm-hooks.mjs tester/tester-v2-tr-interaction.mjs \
 //       | grep -cE '^  [✓✗] T-R0N'   （逐 N=1..7 取）
 const EXPECTED = {
-  R01: 1,   // 运算符单击不双入（代码级 mock）
-  R02: 1,   // 括号单击不双入（代码级 mock）
+  R01: 1 + 2 + 1,   // task-146：存在性前置 + tokens增量1 + formulaText增1字符 + 未发牌反向
+  R02: 1 + 1,       // task-146：存在性前置 + ( 与 ) 每次增量恰为 1
   R03: 1,   // 数字键：UIManager 更新 _lastRealTouchTs（源码检查）
   R04: 3,   // task-141：存在性前置 + tokens 减 1 真行为 + 空栈反向
   R05: 2,   // AnswerModal touch 处理 + _scrollY 状态（源码检查）
