@@ -9,14 +9,13 @@
 
 import {
   reduceToFixpoint, countRecip, renderDisplay, keySol, solve,
-  numLeaf, recipLeaf, MAX_ITER,
-} from '../js/core/RecipSolver.mjs';
+  numLeaf, recipLeaf, MAX_ITER, keyWithFlags} from '../js/core/RecipSolver.mjs';
 import {
   mkCounter, verdictIndependent, parseExpr, evalQ, is24, qs, qeq,
   usedCards, msKey, findNonLeafRecip, renderMy,
 } from './tester-input06-lib.mjs';
 
-const { ck, done } = mkCounter('R-11');
+const { ck, done, st } = mkCounter('R-11');
 console.log('tester-input06-r11.mjs  @ ' + new Date().toISOString());
 console.log('MAX_ITER(被测) = ' + MAX_ITER);
 
@@ -96,18 +95,26 @@ function S(cards) {
 }
 
 for (const { row, ast } of tableAst) {
-  const key = keySol(ast);
+  // 🔴 task-154：原用 keySol(ast) 取【无后缀裸键】，而 res.advanced 的键带五位后缀
+  //   |R?F?M?P?L?（composeKeyWithFlags 全假才短路成裸键）⇒ has() 恒 false，整体缺后缀而非某位错。
+  //   与 task-151 在 r04 修的两条完全同型（项目主 16:08 已批该修法），改用产品公开取键 API。
+  //   🔴 禁自拼后缀（产品注释要求自拼须复现 usedRecip 正则字面量并取 rr.node）。
+  const key = keyWithFlags(ast);
   const res = S(row.cards);
   const inAdv = res.advanced.has(key);
   if (row.want === '无效') {
     ck(`[红灯] ${row.s.padEnd(18)} 不在 advanced 分区`, inAdv === false,
        `cards=${JSON.stringify(row.cards)} key=${key} advSize=${res.advanced.size}`);
-    // 无效解应落在 primary（归约后同形）或 cancelled 残余
+    // 🔴 task-154（架构师 task-152 裁定方案B）：无效解应落在 primary（归约后同形）。
+    //   原判据还或上了 res.cancelled.has(...)，但 cancelled 集合已随规范变更消灭
+    //   （solve() 顶层不再有该键，只余 cancelledRaw 计数器）⇒ 该或式项恒无效，删。
+    //   🔴 正确措辞：消失的是【存放可消去解的集合】，不是可消去解本身 ——
+    //   可消去解大量存在（我自造正例 [4,1,6,1] 实测 cancelledRaw=418），
+    //   只是其归约式键统一落 primary（自验：primary∩advanced=0、顶层无 cancelled 键）。
     const rr = reduceToFixpoint(ast);
     const inPrim = res.primary.has(keySol(rr.node));
-    const inCanc = res.cancelled.has(keySol(rr.node));
-    ck(`[红灯] ${row.s.padEnd(18)} 归约式落在 primary 或 cancelled`, inPrim || inCanc,
-       `primary=${inPrim} cancelled=${inCanc}`);
+    ck(`[红灯] ${row.s.padEnd(18)} 归约式落在 primary`, inPrim,
+       `primary=${inPrim}`);
   } else {
     ck(`[正例] ${row.s.padEnd(18)} 在 advanced 分区`, inAdv === true,
        `cards=${JSON.stringify(row.cards)} key=${key} advSize=${res.advanced.size}`);
@@ -204,9 +211,9 @@ const baseObserved = [];
 for (const [cards, want] of BASE) {
   const res = S(cards);
   const got = res.advanced.size;
-  baseObserved.push({ cards, want, got, primary: res.primary.size, cancelled: res.counts.cancelled });
+  baseObserved.push({ cards, want, got, primary: res.primary.size, cancelledRaw: res.counts.cancelledRaw });
   ck(`R-11④ ${JSON.stringify(cards).padEnd(16)} advanced=${got} 期望=${want}`, got === want,
-     `primary=${res.primary.size} cancelled=${res.counts.cancelled} residual=${res.counts.cancelledResidual}`);
+     `primary=${res.primary.size} cancelledRaw=${res.counts.cancelledRaw}`);
 }
 const ZERO = [[5, 5, 5, 5], [1, 1, 2, 9], [3, 3, 7, 7], [4, 4, 7, 7], [3, 3, 3, 5]];
 for (const cards of ZERO) {
@@ -218,9 +225,28 @@ for (const cards of ZERO) {
 }
 
 console.log('\n--- R-11④ 观测全表（供报告引用） ---');
-console.log('cards            | primary | advanced(实测/期望) | cancelled');
+console.log('cards            | primary | advanced(实测/期望) | cancelledRaw');
 for (const o of baseObserved) {
-  console.log(`${JSON.stringify(o.cards).padEnd(16)} | ${String(o.primary).padStart(7)} | ${String(o.got).padStart(8)}/${String(o.want).padEnd(8)} | ${o.cancelled}`);
+  console.log(`${JSON.stringify(o.cards).padEnd(16)} | ${String(o.primary).padStart(7)} | ${String(o.got).padStart(8)}/${String(o.want).padEnd(8)} | ${o.cancelledRaw}`);
+}
+
+// ============================================================================
+// 🔴 task-154：断言总数自断言（分族算式，禁裸数字）
+//   目的：防某族被静默跳过（如 for 循环上界写错、数组被误清空）而仍「全绿」。
+//   🔴 分族数为【逐族现取实数】（按断言文本首段 awk/uniq -c 计数），非估算：
+//     [1.2.3] 族 = 60｜[红灯] = 18｜R-11③ = 14｜R-11⑤ = 10｜R-11④ = 9
+//     R-11② = 5｜[正例] = 3｜表内有效例数 = 1｜表内无效例数 = 1
+//   ⇒ 全支应为 121 条。自断言自身不计入（判绿走 console.log 不经 ck）。
+// ============================================================================
+const EXPECTED_TOTAL = 60 + 18 + 14 + 10 + 9 + 5 + 3 + 1 + 1;
+{
+  const seg = st.pass + st.fail;
+  if (seg !== EXPECTED_TOTAL) {
+    ck(`断言总数自断言（全支）：${seg} == 期望 ${EXPECTED_TOTAL}`, false,
+       `有断言静默退场或算式未随新增同步`);
+  } else {
+    console.log(`  \u2713 断言总数核对（全支）：${seg} == 期望 ${EXPECTED_TOTAL} \u2705  pass=${st.pass} fail=${st.fail}`);
+  }
 }
 
 const ok = done();

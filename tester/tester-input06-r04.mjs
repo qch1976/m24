@@ -46,7 +46,7 @@ for (let i = 0; i < N_DEAL; i++) {
     const k = msKey(cards);
     if (!seenKey.has(k) && seeds.length < 12) {
       seenKey.add(k);
-      seeds.push({ cards: cards.slice(), primary: res.primary.size, advanced: res.advanced.size, cancelled: res.counts.cancelled });
+      seeds.push({ cards: cards.slice(), primary: res.primary.size, advanced: res.advanced.size, cancelledRaw: res.counts.cancelledRaw });
     }
   }
 }
@@ -54,10 +54,24 @@ console.log(`独立随机发牌 ${dealCount} 次（xorshift32 seed=20260803，�
 console.log(`其中含有效倒数解的局数 = ${withAdv}  占比 = ${(withAdv / dealCount * 100).toFixed(2)}%`);
 ck(`R-04 种子池独立筛选出 ≥6 组含有效倒数解的牌组`, seeds.length >= 6, `实际 ${seeds.length} 组`);
 console.log('\n种子池（Tester 独立筛出，前 12 组去重）：');
-console.log('  #  cards                primary  advanced  cancelled');
+console.log('  #  cards                primary  advanced  cancelledRaw');
 seeds.forEach((s, i) => {
-  console.log(`  ${String(i + 1).padStart(2)}  ${JSON.stringify(s.cards).padEnd(18)} ${String(s.primary).padStart(7)} ${String(s.advanced).padStart(9)} ${String(s.cancelled).padStart(10)}`);
+  console.log(`  ${String(i + 1).padStart(2)}  ${JSON.stringify(s.cards).padEnd(18)} ${String(s.primary).padStart(7)} ${String(s.advanced).padStart(9)} ${String(s.cancelledRaw).padStart(10)}`);
 });
+// 🔴 task-154：cancelledRaw 存在性 + 正例断言（经理硬要求2）
+//   理由：该字段属「结构存在但取值恒 undefined 也不报错」型 —— 若上方 seeds.push({...}) 处取错字段名，
+//   上面那行会静默打 undefined 而不判红（与 P/L 位零正例同型）。
+//   故须证：① 每条 seed 的 cancelledRaw 是 number（非 undefined）② 至少一条 > 0（正例真可产生）。
+//   🔴 措辞口径：消失的是【存放可消去解的集合 cancelled】，不是可消去解本身；
+//   可消去解大量存在，所以 cancelledRaw 恒 0 反而是错的期望。
+{
+  const allNum = seeds.every((s) => typeof s.cancelledRaw === 'number');
+  ck('cancelledRaw 全为 number（非 undefined ⇒ 字段名取对）', allNum,
+     `types=${[...new Set(seeds.map((s) => typeof s.cancelledRaw))].join(',')}`);
+  const posCnt = seeds.filter((s) => s.cancelledRaw > 0).length;
+  ck('cancelledRaw 存在正例（>0 可产生，非恒 0）', posCnt > 0,
+     `>0 的 seed 数=${posCnt}/${seeds.length}  最大值=${Math.max(...seeds.map((s) => s.cancelledRaw))}`);
+}
 
 // 逐组：solver 输出的每条 advanced 解，都用独立 evaluator 复算 + 用牌校验 + 叶子性校验
 console.log('\n--- 种子池逐组全解独立复算（禁 solver 自证） ---');
@@ -120,7 +134,7 @@ console.log('\n--- R-04 人工独立验算（分数手算，逐步 Fraction，�
   const res = S([1, 3, 4, 6]);
   let sq = 0; const mk = (c) => numLeaf(c, sq++), mr = (c) => recipLeaf(c, sq++);
   sq = 0; const ast = { op: '/', a: { op: '*', a: mk(3), b: mk(6) }, b: { op: '-', a: mk(1), b: mr(4) } };
-  // 🔴 task-151：同 :101，改用公开取键 API（禁自拼后缀、禁写死键字面量）
+  // 🔴 task-151：同【手算1 该解确在 solver advanced 分区】那条断言，改用公开取键 API（禁自拼后缀、禁写死键字面量）
   ck('手算2 该解确在 solver advanced 分区', res.advanced.has(keyWithFlags(ast)), `key=${keyWithFlags(ast)}`);
 }
 // 手算 3：[1,2,5,10] 的 (1+(1/5))×(2×10)
@@ -210,35 +224,13 @@ function enumFloat(cards) {
   for (const lv of lvs) dfs(lv);
   return set;
 }
-// 🔴 task-151 新增：分段断言总数自断言（分族算式，禁裸数字）。
-//   ⚠️ 必须放在【:213 崩溃点之前】—— 该行 res.cancelled.values() 因 cancelled 由 Map 改为
-//   计数器 cancelledRaw 而抛 TypeError（task-143 §三.1 定的语义待裁定项，本支范围闸门外不修），
-//   导致文件尾部 done() 不可达。若把自断言写在尾部，它永远不会执行 ⇒ 等于没有。
-//   🔴 分族数为【逐族现取实数】，非估算：我第一版写 18+17=35 判红，核实为【我算式错】
-//   （35 是修复前的 ok 数，漏算当时那 2 条 XX），非断言退场 —— 已按 awk 逐族重数修正：
-//   手算1 = 6｜手算2 = 5｜手算3 = 4｜R-04.x 系列 = 22  ⇒ 崩溃点前应累计 37 条
-//   🔴 计数口径（经理 task-151 验收指出我原注释写错，已现跑核对后更正）：
-//   绿路径走 console.log【不经 ck() ⇒ 不计数】，仅判红路径走 ck() 计 1 条。
-//   故常态日志 ok=37、pass=37（【无 38】）；只有本自断言判红时尾数才为 38。
-//   原注释「日志尾数为 38 属预期」是把【第一版算式判红态】的观测值当成修复后常态，
-//   拿旧态数字描述新态，会让后人按 38 对账而白排查 —— 与「取值时刻不一致却当同一事实」同型。
-const EXPECTED_BEFORE_CRASH = 6 + 5 + 4 + 22;
-{
-  const seg = st.pass + st.fail;
-  if (seg !== EXPECTED_BEFORE_CRASH) {
-    ck(`断言总数自断言（崩溃点前）：${seg} == 期望 ${EXPECTED_BEFORE_CRASH}`, false,
-      `实际 ${seg}（有断言静默退场或新增未同步算式）`);
-  } else {
-    console.log(`  \u2713 断言总数核对（崩溃点前）：${seg} == 期望 ${EXPECTED_BEFORE_CRASH} \u2705  pass=${st.pass} fail=${st.fail}`);
-  }
-}
 const SENT = [[3, 3, 8, 8], [13, 12, 11, 9], [1, 4, 6, 8]];
 let sentWithLoss = 0;
 const sentRows = [];
 for (const cards of SENT) {
   const res = S(cards);
   // 口径：对「全体解」（primary + advanced + cancelled 残余）逐条做 float 严格判等
-  const all = [...res.primary.values(), ...res.advanced.values(), ...res.cancelled.values()];
+  const all = [...res.primary.values(), ...res.advanced.values()];
   let lost = 0, tot = 0;
   const lostSamples = [];
   for (const expr of all) {
@@ -264,7 +256,7 @@ for (let i = 0; i < 200; i++) {
   const cards = dealRandom();
   gDeals++;
   const res = S(cards);
-  const all = [...res.primary.values(), ...res.advanced.values(), ...res.cancelled.values()];
+  const all = [...res.primary.values(), ...res.advanced.values()];
   let localLost = 0;
   for (const expr of all) { gTot++; if (floatEval(parseExpr(expr)) !== 24) { gLost++; localLost++; } }
   if (localLost > 0) gDealsWithLoss++;
@@ -313,6 +305,30 @@ for (const cards of [[5, 5, 5, 5], [1, 1, 2, 9], [3, 3, 7, 7], [4, 4, 7, 7], [3,
   sq = 0; const withR = { op: '/', a: { op: '-', a: mk(8), b: mk(4) }, b: mr(6) };
   ck('R-04.3 usedRecip 归约前 >0（若在此判定即误标）', countRecip(withR) > 0, `归约前 ${countRecip(withR)}`);
   ck('R-04.3 usedRecip 归约后 =0（正确口径）', countRecip(reduceToFixpoint(withR).node) === 0);
+}
+
+// ============================================================================
+// 🔴 task-154：断言总数自断言【已从崩溃点前移回尾部】
+//   移回理由（现取论据，非照搬）：task-151 时 res.cancelled.values() 展开处抛 TypeError，
+//   使 done() 永不执行，故当时必须前移、且只能覆盖崩溃点前那 37 条。
+//   本支按方案 B 删掉那两处 cancelled 展开后：实测 TypeError=0、done() 首次可达
+//   ⇒ 前移已无必要，且留在前面会造成【覆盖缺口】：尾部实际 60 条真断言里只有 38 条被核。
+//   故移回尾部覆盖全支。
+//   🔴 分族算式为【逐族现取实数】（awk 分族计数），非估算：
+//     手算1 = 6｜手算2 = 5｜手算3 = 4｜cancelledRaw 正例族 = 2（本支新增）
+//     R-04.x 系列 = 43（含 R-04 前缀 14 + R-04.1 8 + R-04.2 9 + R-04.3 2 + R-04.3① 5 + R-04.3② 5）
+//   ⇒ 全支真断言应为 60；自断言自身不计入（判红走 ck 才计数、判绿走 console.log 不计数，
+//     此计数语义已在 task-151 现跑核实过）。
+// ============================================================================
+const EXPECTED_TOTAL = 6 + 5 + 4 + 2 + 43;
+{
+  const seg = st.pass + st.fail;
+  if (seg !== EXPECTED_TOTAL) {
+    ck(`断言总数自断言（全支）：${seg} == 期望 ${EXPECTED_TOTAL}`, false,
+       `有断言静默退场或算式未随新增同步`);
+  } else {
+    console.log(`  \u2713 断言总数核对（全支）：${seg} == 期望 ${EXPECTED_TOTAL} \u2705  pass=${st.pass} fail=${st.fail}`);
+  }
 }
 
 const ok = done();
