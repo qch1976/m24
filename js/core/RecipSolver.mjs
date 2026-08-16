@@ -707,6 +707,56 @@ export function keySol(t) {
   return `(${t.op} ${ka} ${kb})`; // - / 保序
 }
 
+// ============ task-148：后缀拼接单点定义 + 公开取键 API ============
+// 🔴 为何需要：`keySol()` 只产 baseK（无后缀），而 `res.advanced` 的键带五位后缀
+//   ⇒ 判据侧无法用 `res.advanced.has(keySol(ast))` 命中（恒 false）。
+//   若让判据自拼后缀，则必须复现 usedRecip 的正则字面量与「取 rr.node 而非 node」
+//   两处产品内部决策 ⇒ 属自证（本项目已有同型假绿实证）。故由产品侧导出。
+//
+// 🔴🔴 C-2 硬约束（与 solve() 内原注释同效，勿「顺手整洁」）：
+//   五标记全 false ⇒ **必须返回无后缀的 baseK**，禁恒拼 `|R0F0M0P0L0`。
+//   否则关闭态键集合整体偏移、**静默破 R-01**（不报错）。
+//   守护：C-A1（关闭态无含 | 的键）+ C-A2（全量无 |R0F0M0 字面量）+ C-A3（后缀定长正则）。
+/**
+ * 将 baseK 与五标记拼成最终键。**全仓唯一拼接处**（单点定义）。
+ * @param {string} baseK `keySol()` 产出的归约式键
+ * @param {{recip?:boolean,fact?:boolean,mod?:boolean,pow?:boolean,log?:boolean}} flags 五标记
+ * @returns {string} 任一标记为真 ⇒ `baseK|R{0|1}F{0|1}M{0|1}P{0|1}L{0|1}`；全假 ⇒ baseK（无后缀）
+ */
+export function composeKeyWithFlags(baseK, flags) {
+  const f = flags || {};
+  const r = !!f.recip, ft = !!f.fact, m = !!f.mod, p = !!f.pow, l = !!f.log;
+  // 位序恒定 R→F→M→P→L（INPUT-08 §3.3，不得调整既有 R→F→M）
+  if (!(r || ft || m || p || l)) return baseK;   // 🔴 全假短路：禁恒拼
+  return `${baseK}|R${r ? 1 : 0}F${ft ? 1 : 0}M${m ? 1 : 0}P${p ? 1 : 0}L${l ? 1 : 0}`;
+}
+
+/**
+ * 公开取键 API：产出与 `solve().advanced` / `.primary` **同型**的键。
+ * 判据侧可直接 `res.advanced.has(keyWithFlags(ast))`，无需拄任何产品内部逻辑。
+ *
+ * 与 solve() 内部完全同源：均用归约式 baseK = keySol(reduceToFixpoint(node).node)，
+ * 且五标记计算与 `:1007-1015` 逐行一致（usedRecip 合取归约式正则，其余四位走原式计数）。
+ * ⚠️ 本函数**不改**分区判定行为，仅作只读取键入口。
+ *
+ * @param {object} node 原式 AST 节点（未归约）
+ * @returns {string} 与 res.advanced/res.primary 键完全相等的字符串
+ */
+export function keyWithFlags(node) {
+  const rr = reduceToFixpoint(node);
+  const baseK = keySol(rr.node);
+  // 🔴 与 :1007 同式：usedRecip 是【原式 countRecip>0】∧【归约式键命中 r\d+】的合取。
+  //   不可只用其中一侧：只用左侧会把可消去倒数误升为高级解；
+  //   只用右侧会因別名（ONE/x）漏记。此处故意与产品侧同式（含其已知技术债）。
+  return composeKeyWithFlags(baseK, {
+    recip: countRecip(node) > 0 && /(^|[^a-z])r\d+/.test(baseK),
+    fact: countFact(node) > 0,
+    mod: countMod(node) > 0,
+    pow: countPow(node) > 0,
+    log: countLog(node) > 0,
+  });
+}
+
 // ============ 叶子变体枚举（方案 §3.2） ============
 // 每张牌 c 取 c 或 1/c；c===1（恒等）与 c===0（未定义）不展开倒数
 export function leafVariants(cards) {
@@ -932,7 +982,23 @@ export const DISPLAY_LIMIT = 10;
  * @param {{ advancedCalc?:boolean }} [opts] INPUT-07 §1.1：高级计算开关
  *   ★ R-01：关闭态下行为必严格等于初级符号完成态（无高级 solver）。
  *   向后兼容：不传 opts 时沿用 INPUT-06 行为（仅倒数变体），保现有 21 项门禁不碎。
- * @returns {{ primary:Map, advanced:Map, cancelled:Map, counts:object, maxIters:number, rawHits:number }}
+ * @returns {{
+ *   primary:Map<string,string>,
+ *   advanced:Map<string,string>,
+ *   advancedNodes:Map<string,object>,
+ *   cancelledRaw:number,
+ *   counts:{ primary:number, advanced:number, cancelledRaw:number },
+ *   maxIters:number,
+ *   overflowCount:number,
+ *   rawHits:number
+ * }}
+ *   🔴 task-148：JSDoc 原声明 `cancelled:Map` **与实现不符**，已按真 import 现取更正。
+ *   取值命令：`node -e 'import("./js/core/RecipSolver.mjs").then(RS=>console.log(Object.keys(RS.solve([3,3,8,8],{advancedCalc:true,caps:{recip:true,fact:true,mod:true,pow:true,log:true}})).sort()))'`
+ *   实测顶层键 = advanced, advancedNodes, cancelledRaw, counts, maxIters, overflowCount, primary, rawHits
+ *   ⇒ **无 `cancelled`**；`cancelledRaw` 是 **number**（被剔除的可消去解计数）而非 Map；
+ *     另有 `advancedNodes`（展示文本→AST，task-111 GUI-1）与 `overflowCount`。
+ *   实测 `counts` 子键 = { primary, advanced, cancelledRaw }（三项，均为 number）。
+ *   ⚠️ 只改注释，未改实现。
  */
 export function solve(cards, opts) {
   const primary = new Map();
@@ -1036,10 +1102,10 @@ export function solve(cards, opts) {
       // 🔴 INPUT-08 §3.3：三位→五位 R→F→M→P→L。位序恒定，不得调整既有 R→F→M。
       //   全 false 仍走无后缀短路（下方三元运算符的 else 分支）——禁恒拼 R0F0M0P0L0，
       //   否则关闭态键集合整体偏移，静默破 R-01（C-2 硬约束，同上方警示）。
+      // 🔴 task-148：拼接逻辑已抽为 `composeKeyWithFlags()`（单点定义），此处与公开 API
+      //   `keyWithFlags()` 调**同一个函数** —— 禁再就地内联一份，抄一份即下一个漂移源。
       const anyAdv = usedRecip || usedFact || usedMod || usedPow || usedLog;
-      const k = anyAdv
-        ? `${baseK}|R${usedRecip ? 1 : 0}F${usedFact ? 1 : 0}M${usedMod ? 1 : 0}P${usedPow ? 1 : 0}L${usedLog ? 1 : 0}`
-        : baseK;
+      const k = composeKeyWithFlags(baseK, { recip: usedRecip, fact: usedFact, mod: usedMod, pow: usedPow, log: usedLog });
       if (anyAdv) {
         if (!advanced.has(k)) {
           const disp = renderDisplay(node);
@@ -1112,6 +1178,8 @@ export default {
   reduceOnce,
   reduceToFixpoint,
   keySol,
+  keyWithFlags,        // 🔴 task-148：公开取键 API（与 res.advanced 键同型）
+  composeKeyWithFlags, // 🔴 task-148：后缀拼接单点定义
   leafVariants,
   countRecip,
   render,
