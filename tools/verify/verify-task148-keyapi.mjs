@@ -31,14 +31,25 @@ T(`6 组共 ${tot} 条 advanced 解，keyWithFlags 命中 ${hit}/${tot}`, tot>0 
 //   ⇒ 判红了却告诉 CI「成功」（实测：FAIL=2 依然 rc=0）。同 task-142 ① 类缺陷。
 //   修法：① 尾部置 process.exitCode；② 补 EXPECTED_ASSERTION_COUNT 分族自断言，
 //   防断言静默退场（early-return / 抛异常少跑断言也必需非 0）。
-const EXPECTED_ASSERTION_COUNT = 9;   // 🔴 分族：门禁⑥ 6 + 门禁⑦ 2 + 全量一致性 1 = 9
+// 🔴 分族算式写在**代码层**（非裸数字配注释）：某族增减时算式强迫改对应项，
+//   裸数字只会被改成 10 而不知多出的那条归哪族（注释不参与求值，漂移时不报错）。
+const EXP_GATE5 = 6;   // 门禁⑥：2 例 ×（找到 AST + 键完全相等 + has()===true）
+const EXP_GATE6 = 2;   // 门禁⑦：关闭态无 "|" + 无恒拼 R0F0M0P0L0
+const EXP_XCHECK = 1;  // 全量一致性：keyWithFlags 全命中
+const EXPECTED_ASSERTION_COUNT = EXP_GATE5 + EXP_GATE6 + EXP_XCHECK;
 console.log(`\n断言总数校对 pass+fail=${pass + fail}`);
 const totalOk = (pass + fail) === EXPECTED_ASSERTION_COUNT;
 if (!totalOk) {
-  console.log(`✗ 条款8 断言总数不符：得 ${pass + fail} ≠ 期望 ${EXPECTED_ASSERTION_COUNT} ⇒ 可能有断言静默退场`);
+  console.log(`✗ 条款8 断言总数不符：得 ${pass + fail} ≠ 期望 ${EXPECTED_ASSERTION_COUNT}`
+    + `（=${EXP_GATE5}+${EXP_GATE6}+${EXP_XCHECK}）⇒ 可能有断言静默退场`);
 } else {
   console.log(`✓ 条款8 断言总数校对：${pass + fail} == 期望 ${EXPECTED_ASSERTION_COUNT}`);
 }
-console.log(fail === 0 && totalOk ? 'RESULT: ALL PASS' : 'RESULT: FAIL=' + fail);
+// 🔴 判红时禁显示 `FAIL=0` —— 人读日志会当成零失败（本项目已因此错过一轮，task-143）。
+//   总数不符且 fail=0 时，必携 COUNT_MISMATCH 标记。
+const verdict = (fail === 0 && totalOk)
+  ? 'RESULT: ALL PASS'
+  : `RESULT: FAIL=${fail}${totalOk ? '' : ' COUNT_MISMATCH'}`;
+console.log(verdict);
 // 🔴 rc 通道：0=全绿；1=有断言失败；2=断言总数不符（与 run-gate.sh 自述的码义同口径）
 process.exitCode = !totalOk ? 2 : (fail === 0 ? 0 : 1);
