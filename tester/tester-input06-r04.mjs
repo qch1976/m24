@@ -1,13 +1,13 @@
 // tester-input06-r04.mjs — R-04 / R-04.1 / R-04.2 / R-04.3 独立采样（task-65）
 // 禁 solver 自证：所有正确性断言由 tester-input06-lib.mjs 的独立 evaluator 复算
 
-import { solve, keySol, reduceToFixpoint, countRecip, renderDisplay, numLeaf, recipLeaf } from '../js/core/RecipSolver.mjs';
+import { solve, keySol, keyWithFlags, reduceToFixpoint, countRecip, renderDisplay, numLeaf, recipLeaf } from '../js/core/RecipSolver.mjs';
 import {
   mkCounter, parseExpr, evalQ, is24, qs, usedCards, msKey,
   findNonLeafRecip, countRecipLeaf, verdictIndependent, renderMy, Q, qsub, qdiv, qmul, qadd,
 } from './tester-input06-lib.mjs';
 
-const { ck, done } = mkCounter('R-04 系列');
+const { ck, done, st } = mkCounter('R-04 系列');
 console.log('tester-input06-r04.mjs  @ ' + new Date().toISOString());
 
 const cache = new Map();
@@ -98,7 +98,12 @@ console.log('\n--- R-04 人工独立验算（分数手算，逐步 Fraction，�
   const res = S([3, 3, 8, 8]);
   let sq = 0; const mk = (c) => numLeaf(c, sq++), mr = (c) => recipLeaf(c, sq++);
   sq = 0; const ast = { op: '/', a: { op: '*', a: mk(8), b: mk(8) }, b: { op: '-', a: mk(3), b: mr(3) } };
-  ck('手算1 该解确在 solver advanced 分区', res.advanced.has(keySol(ast)), `key=${keySol(ast)}`);
+  // 🔴 task-151：原用 keySol(ast) 取到【无后缀裸键】，而 res.advanced 的键带五位后缀
+  //   ⇒ has() 恒 false（键整体缺后缀，非某一位错）。改用产品公开取键 API keyWithFlags()：
+  //   它内部 reduceToFixpoint + keySol + composeKeyWithFlags，与 solve():1108 同源同型。
+  //   🔴 禁自拼后缀（产品 :713 注释：自拼须复现 usedRecip 正则字面量与「取 rr.node 而非 node」
+  //      ⇒ 自拼即下一个漂移源）；🔴 禁写死期望键字面量（task-150 刚因写死后缀吃过三条误判红）。
+  ck('手算1 该解确在 solver advanced 分区', res.advanced.has(keyWithFlags(ast)), `key=${keyWithFlags(ast)}`);
 }
 // 手算 2：[1,3,4,6] 的 (3×6)÷(1-(1/4))
 // 手写推导：1/4；1 - 1/4 = 4/4 - 1/4 = 3/4；3×6 = 18；18 ÷ (3/4) = 18×4/3 = 72/3 = 24 ✓
@@ -115,7 +120,8 @@ console.log('\n--- R-04 人工独立验算（分数手算，逐步 Fraction，�
   const res = S([1, 3, 4, 6]);
   let sq = 0; const mk = (c) => numLeaf(c, sq++), mr = (c) => recipLeaf(c, sq++);
   sq = 0; const ast = { op: '/', a: { op: '*', a: mk(3), b: mk(6) }, b: { op: '-', a: mk(1), b: mr(4) } };
-  ck('手算2 该解确在 solver advanced 分区', res.advanced.has(keySol(ast)), `key=${keySol(ast)}`);
+  // 🔴 task-151：同 :101，改用公开取键 API（禁自拼后缀、禁写死键字面量）
+  ck('手算2 该解确在 solver advanced 分区', res.advanced.has(keyWithFlags(ast)), `key=${keyWithFlags(ast)}`);
 }
 // 手算 3：[1,2,5,10] 的 (1+(1/5))×(2×10)
 // 手写推导：1/5；1 + 1/5 = 6/5；2×10 = 20；(6/5)×20 = 120/5 = 24 ✓
@@ -203,6 +209,24 @@ function enumFloat(cards) {
   rec(0, []);
   for (const lv of lvs) dfs(lv);
   return set;
+}
+// 🔴 task-151 新增：分段断言总数自断言（分族算式，禁裸数字）。
+//   ⚠️ 必须放在【:213 崩溃点之前】—— 该行 res.cancelled.values() 因 cancelled 由 Map 改为
+//   计数器 cancelledRaw 而抛 TypeError（task-143 §三.1 定的语义待裁定项，本支范围闸门外不修），
+//   导致文件尾部 done() 不可达。若把自断言写在尾部，它永远不会执行 ⇒ 等于没有。
+//   🔴 分族数为【逐族现取实数】，非估算：我第一版写 18+17=35 判红，核实为【我算式错】
+//   （35 是修复前的 ok 数，漏算当时那 2 条 XX），非断言退场 —— 已按 awk 逐族重数修正：
+//   手算1 = 6｜手算2 = 5｜手算3 = 4｜R-04.x 系列 = 22  ⇒ 崩溃点前应累计 37 条
+//   （自断言自身再占 1 条，故日志尾数为 38，属预期）。
+const EXPECTED_BEFORE_CRASH = 6 + 5 + 4 + 22;
+{
+  const seg = st.pass + st.fail;
+  if (seg !== EXPECTED_BEFORE_CRASH) {
+    ck(`断言总数自断言（崩溃点前）：${seg} == 期望 ${EXPECTED_BEFORE_CRASH}`, false,
+      `实际 ${seg}（有断言静默退场或新增未同步算式）`);
+  } else {
+    console.log(`  \u2713 断言总数核对（崩溃点前）：${seg} == 期望 ${EXPECTED_BEFORE_CRASH} \u2705  pass=${st.pass} fail=${st.fail}`);
+  }
 }
 const SENT = [[3, 3, 8, 8], [13, 12, 11, 9], [1, 4, 6, 8]];
 let sentWithLoss = 0;
