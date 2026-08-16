@@ -203,17 +203,32 @@ ck(`R-11③ 表内最大 iters=${maxIterSeen} 远小于 MAX_ITER`, maxIterSeen <
 console.log('\n' + '='.repeat(70));
 console.log('PART 5 · R-11④ 基准计数 / R-11⑤ 恒 0 正例（独立采样）');
 console.log('='.repeat(70));
+// 🔴 task-154：BASE 改为 INPUT-06「§8 参考数据」表明文值，并改【双列同时校验】。
+//   基准出处 = 需求文档 INPUT-06.md 的「§8 参考数据」表（按标识描述，不写行号；
+//   该表标题为「统一归约式键去重后的期望基准值」，列为 牌组|初级解|高级解|最短高级解）。
+//   🔴 禁再写「出自某 commit」—— 基准源是需求文档，不是代码史。
+//   原 BASE 单列值 48/34/30/24/17/16/10/5/3 与需求无一位对得上，且并非「基准过期」：
+//   需求「基准修订」注写明 [1,2,3,4] 初级 52→3 属【按原式去重的旧量级】，
+//   原 BASE 即该旧口径残留 ⇒ 是 BASE 从未对过，产品一直正确
+//   （我独立复算该表全 14 组：14/14 符合，合计 初级34/高级28 亦符合）。
+//   🔴 原判据只验 advanced、丢了 primary，本身是对需求的漏盖 ⇒ 改双列。
 const BASE = [
-  [[1, 2, 3, 4], 48], [[2, 3, 4, 6], 34], [[1, 3, 4, 6], 30], [[1, 5, 5, 5], 24],
-  [[3, 3, 8, 8], 17], [[1, 2, 5, 10], 16], [[1, 1, 3, 8], 10], [[1, 4, 6, 8], 5], [[2, 4, 5, 8], 3],
+  // [牌组, 初级解 primary, 高级解 advanced]
+  [[1, 2, 3, 4], 3, 4], [[2, 3, 4, 6], 10, 10], [[1, 3, 4, 6], 1, 3], [[1, 5, 5, 5], 1, 1],
+  [[3, 3, 8, 8], 1, 6], [[1, 2, 5, 10], 2, 1], [[1, 1, 3, 8], 1, 0], [[1, 4, 6, 8], 3, 1],
+  [[2, 4, 5, 8], 7, 2],
 ];
 const baseObserved = [];
-for (const [cards, want] of BASE) {
+for (const [cards, wantPrim, wantAdv] of BASE) {
   const res = S(cards);
   const got = res.advanced.size;
-  baseObserved.push({ cards, want, got, primary: res.primary.size, cancelledRaw: res.counts.cancelledRaw });
-  ck(`R-11④ ${JSON.stringify(cards).padEnd(16)} advanced=${got} 期望=${want}`, got === want,
-     `primary=${res.primary.size} cancelledRaw=${res.counts.cancelledRaw}`);
+  const gotPrim = res.primary.size;
+  baseObserved.push({ cards, wantPrim, wantAdv, got, primary: gotPrim, cancelledRaw: res.counts.cancelledRaw });
+  // 🔴 双列同时校验（需求「§8 参考数据」表给的是 初级/高级 两列，只验一列即漏盖）
+  ck(`R-11④ ${JSON.stringify(cards).padEnd(16)} primary=${gotPrim} 期望=${wantPrim}`, gotPrim === wantPrim,
+     `cancelledRaw=${res.counts.cancelledRaw}`);
+  ck(`R-11④ ${JSON.stringify(cards).padEnd(16)} advanced=${got} 期望=${wantAdv}`, got === wantAdv,
+     `primary=${gotPrim} cancelledRaw=${res.counts.cancelledRaw}`);
 }
 const ZERO = [[5, 5, 5, 5], [1, 1, 2, 9], [3, 3, 7, 7], [4, 4, 7, 7], [3, 3, 3, 5]];
 for (const cards of ZERO) {
@@ -225,20 +240,20 @@ for (const cards of ZERO) {
 }
 
 console.log('\n--- R-11④ 观测全表（供报告引用） ---');
-console.log('cards            | primary | advanced(实测/期望) | cancelledRaw');
+console.log('cards            | primary(实测/需求) | advanced(实测/需求) | cancelledRaw');
 for (const o of baseObserved) {
-  console.log(`${JSON.stringify(o.cards).padEnd(16)} | ${String(o.primary).padStart(7)} | ${String(o.got).padStart(8)}/${String(o.want).padEnd(8)} | ${o.cancelledRaw}`);
+  console.log(`${JSON.stringify(o.cards).padEnd(16)} | ${String(o.primary).padStart(3)}/${String(o.wantPrim).padEnd(3)} | ${String(o.got).padStart(3)}/${String(o.wantAdv).padEnd(3)} | ${o.cancelledRaw}`);
 }
 
 // ============================================================================
 // 🔴 task-154：断言总数自断言（分族算式，禁裸数字）
 //   目的：防某族被静默跳过（如 for 循环上界写错、数组被误清空）而仍「全绿」。
 //   🔴 分族数为【逐族现取实数】（按断言文本首段 awk/uniq -c 计数），非估算：
-//     [1.2.3] 族 = 60｜[红灯] = 18｜R-11③ = 14｜R-11⑤ = 10｜R-11④ = 9
+//     [1.2.3] 族 = 60｜[红灯] = 18｜R-11③ = 14｜R-11⑤ = 10｜R-11④ = 18（task-154 改双列：9 组 × 2 列）
 //     R-11② = 5｜[正例] = 3｜表内有效例数 = 1｜表内无效例数 = 1
 //   ⇒ 全支应为 121 条。自断言自身不计入（判绿走 console.log 不经 ck）。
 // ============================================================================
-const EXPECTED_TOTAL = 60 + 18 + 14 + 10 + 9 + 5 + 3 + 1 + 1;
+const EXPECTED_TOTAL = 60 + 18 + 14 + 10 + 18 + 5 + 3 + 1 + 1;
 {
   const seg = st.pass + st.fail;
   if (seg !== EXPECTED_TOTAL) {

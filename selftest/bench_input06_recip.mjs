@@ -24,7 +24,7 @@ function stat(name, decks, warm) {
   if (warm) for (const d of decks) solve(d);   // JIT warmup
   for (const d of decks) {
     const { r, ms } = T(() => solve(d));
-    times.push({ d, ms, p: r.counts.primary, a: r.counts.advanced, c: r.counts.cancelled });
+    times.push({ d, ms, p: r.counts.primary, a: r.counts.advanced, c: r.counts.cancelledRaw });
     if (r.maxIters > maxIters) maxIters = r.maxIters;
     totalRaw += r.rawHits;
   }

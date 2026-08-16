@@ -41,7 +41,7 @@ for (let i = 0; i < N; i++) {
   const d = buildDisplay(res, DISPLAY_LIMIT);
   const t1 = process.hrtime.bigint();
   const ms = Number(t1 - t0) / 1e6;
-  rows.push({ cards, ms, p: res.primary.size, a: res.advanced.size, c: res.counts.cancelled });
+  rows.push({ cards, ms, p: res.primary.size, a: res.advanced.size, c: res.counts.cancelledRaw });
 }
 const times = rows.map((r) => r.ms).sort((x, y) => x - y);
 const pick = (q) => times[Math.min(times.length - 1, Math.ceil(q * times.length) - 1)];
